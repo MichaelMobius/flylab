@@ -1,0 +1,82 @@
+name: Mirror pinned MaleCNS data
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [cleanup-readme-dataset]
+    paths:
+      - '.github/workflows/mirror-malecns.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cleanup-readme-dataset
+
+      - name: Download pinned compact dataset
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC_COMMIT='4a8a8ebe2b8713106b605f5e32bc8458d65e0f16'
+          BASE="https://raw.githubusercontent.com/Lulzx/fly-brain/${SRC_COMMIT}/public/data"
+          mkdir -p data/malecns
+          for file in graph.flyg neurons.flyn meta.json bodymap.json; do
+            curl --fail --location --retry 3 --output "data/malecns/${file}" "${BASE}/${file}"
+          done
+
+      - name: Build provenance manifest and switch default loader to local mirror
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, json, pathlib
+          root = pathlib.Path('data/malecns')
+          commit = '4a8a8ebe2b8713106b605f5e32bc8458d65e0f16'
+          files = []
+          for name in ['graph.flyg','neurons.flyn','meta.json','bodymap.json']:
+              p = root / name
+              h = hashlib.sha256(p.read_bytes()).hexdigest()
+              files.append({
+                  'name': name,
+                  'size_bytes': p.stat().st_size,
+                  'sha256': h,
+                  'source_path': f'public/data/{name}'
+              })
+          manifest = {
+              'dataset': 'MaleCNS v1.0 compact browser representation',
+              'source_repository': 'https://github.com/Lulzx/fly-brain',
+              'source_commit': commit,
+              'source_license_note': 'Preserve original MaleCNS/derived-data attribution; see THIRD_PARTY_NOTICES.md',
+              'files': files
+          }
+          (root / 'MANIFEST.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
+
+          worker = pathlib.Path('src/malecns/worker.js')
+          text = worker.read_text(encoding='utf-8')
+          remote = "const DEFAULT_BASE='https://raw.githubusercontent.com/Lulzx/fly-brain/4a8a8ebe2b8713106b605f5e32bc8458d65e0f16/public/data/';"
+          local = "const DEFAULT_BASE='../../data/malecns/';"
+          if remote in text:
+              text = text.replace(remote, local)
+          elif local not in text:
+              raise SystemExit('Could not locate MaleCNS DEFAULT_BASE in worker.js')
+          worker.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Commit mirror
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/malecns src/malecns/worker.js
+          if git diff --cached --quiet; then
+            echo 'MaleCNS mirror already up to date.'
+            exit 0
+          fi
+          git commit -m 'data: mirror pinned MaleCNS compact dataset'
+          git push origin HEAD:cleanup-readme-dataset

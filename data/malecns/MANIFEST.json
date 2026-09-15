@@ -1,0 +1,32 @@
+{
+  "dataset": "MaleCNS v1.0 compact browser representation",
+  "source_repository": "https://github.com/Lulzx/fly-brain",
+  "source_commit": "4a8a8ebe2b8713106b605f5e32bc8458d65e0f16",
+  "source_license_note": "Preserve original MaleCNS/derived-data attribution; see THIRD_PARTY_NOTICES.md",
+  "files": [
+    {
+      "name": "graph.flyg",
+      "size_bytes": 14623114,
+      "sha256": "ed3df5a7ec8610bdaa7f42b49d0970bca3afa7c9e041ff1c025c6d2f9173fff5",
+      "source_path": "public/data/graph.flyg"
+    },
+    {
+      "name": "neurons.flyn",
+      "size_bytes": 1006198,
+      "sha256": "91630046af02826299834179bb07726d1ed9b7dd1426e90315c011e42011f6e7",
+      "source_path": "public/data/neurons.flyn"
+    },
+    {
+      "name": "meta.json",
+      "size_bytes": 3178974,
+      "sha256": "580c2d5a210469a6ab1184ae2187dcc4ce8217c6f74043bd2e585c7b110ec36a",
+      "source_path": "public/data/meta.json"
+    },
+    {
+      "name": "bodymap.json",
+      "size_bytes": 235718,
+      "sha256": "10630cd4c7a6cc2c1dcfcbee4a602d307f06766f316b185f631406813a58da9d",
+      "source_path": "public/data/bodymap.json"
+    }
+  ]
+}

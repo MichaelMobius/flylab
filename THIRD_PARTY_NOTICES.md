@@ -2,24 +2,39 @@
 
 ## Three.js
 
-FlyLab bundles Three.js 0.186.0 under `vendor/three`. Three.js is MIT licensed; its license is included with the bundled package.
+FlyLab bundles Three.js 0.186.0 under `vendor/three`. Three.js is MIT licensed; its license is included with the vendored files.
 
 ## `Lulzx/fly-brain`
 
-FlyLab 1.0 adapts the browser-connectome codec structure, LIF modeling conventions, descending-neuron motor roles/readout constants, and the rationale for an endogenous-behavior drive from the open-source `Lulzx/fly-brain` project (MIT License, copyright 2026 lulzx). The local files under `src/malecns/` are an integration-oriented subset/reimplementation for FlyLab and preserve attribution here.
+FlyLab adapts browser-connectome codec conventions, LIF modeling conventions, descending-neuron motor roles/readout constants, and the rationale for an endogenous-behavior drive from the open-source `Lulzx/fly-brain` project (MIT License, copyright 2026 lulzx).
 
-FlyLab does not bundle the large MaleCNS graph files in its default ZIP. At runtime, `MaleCNS Observe` or `MaleCNS Control` fetches the compact `neurons.flyn`, `graph.flyg`, `meta.json`, and `bodymap.json` files from the public reference repository, pinned to commit `4a8a8ebe2b8713106b605f5e32bc8458d65e0f16`, unless a custom `malecnsBase` is supplied.
+For reproducibility, FlyLab mirrors the four compact files it needs under `data/malecns/` from the pinned source commit:
+
+```text
+4a8a8ebe2b8713106b605f5e32bc8458d65e0f16
+```
+
+Mirrored files:
+
+- `graph.flyg`
+- `neurons.flyn`
+- `meta.json`
+- `bodymap.json`
+
+`data/malecns/MANIFEST.json` records file sizes, source paths and SHA-256 checksums. The mirror is a reproducibility convenience; it does not transfer ownership or alter upstream licensing/attribution requirements.
 
 ## MaleCNS dataset
 
-MaleCNS v1.0 is a collaboration between FlyEM at HHMI Janelia, the University of Cambridge Department of Zoology, the MRC Laboratory of Molecular Biology, and Google Research. The official MaleCNS download page states that the dataset is licensed under CC-BY.
+MaleCNS v1.0 is a collaboration involving FlyEM at HHMI Janelia, the University of Cambridge Department of Zoology, the MRC Laboratory of Molecular Biology, and Google Research. The official MaleCNS distribution is released with attribution requirements documented by the project. FlyLab's use of the compact preprocessed connectivity does not remove those requirements.
 
-FlyLab's use of compact preprocessed connectivity is intended for research/educational experimentation and does not change the need to preserve dataset attribution.
+When redistributing or publishing results based on this data, cite the MaleCNS dataset/publication and the upstream representation from which the compact files were mirrored.
 
 ## Odor and sensory mapping
 
-The banana odor-to-glomerulus mapping and the identified sensory-population conventions are based on the open browser MaleCNS reference implementation. Other FlyLab fruit odor signatures remain provisional model inputs, not calibrated receptor-response atlases.
+The banana odor-to-glomerulus mapping and identified sensory-population conventions are based on the open browser MaleCNS reference implementation. Other FlyLab fruit odor signatures remain provisional model inputs, not calibrated receptor-response atlases.
 
 ## Scientific interpretation
 
-The connectome is structural data. A structural connectome does not by itself determine membrane dynamics, synaptic physiology, neuromodulation, plasticity, sensory transduction or complete motor biomechanics. FlyLab explicitly labels such assumptions and retains the Proxy controller as a comparison condition.
+The connectome is structural data. It does not by itself determine membrane dynamics, synaptic physiology, neuromodulation, plasticity, sensory transduction or complete motor biomechanics. FlyLab labels these assumptions explicitly and retains Proxy/Observe/Control conditions to separate modeled control from connectome-derived activity.
+
+See `docs/SCIENTIFIC_LIMITATIONS.md` for the current interpretation boundary.
