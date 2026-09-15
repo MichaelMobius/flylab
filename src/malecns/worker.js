@@ -4,7 +4,7 @@ import { decodeGraph } from './graph.js';
 import { LIFNetwork } from './lif.js';
 import { buildMotorGroups, DNMotorReadout, IntrinsicDrive } from './motor.js';
 
-const DEFAULT_BASE='https://raw.githubusercontent.com/Lulzx/fly-brain/4a8a8ebe2b8713106b605f5e32bc8458d65e0f16/public/data/';
+const DEFAULT_BASE='../../data/malecns/';
 const REGION_KEYS=['AL','MB','CX','SEZ','DN','VNC'];
 let net=null, data=null, groups=null, regionMask=null, motorGroups=null, motorReadout=null, intrinsic=null;
 let running=false, loopToken=0, runMode='observe';
