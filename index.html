@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<meta content="FlyLab: laboratorio 3D inmersivo de navegación olfativa, vuelo, locomoción terrestre, alimentación y actividad conectómica inspirada en Drosophila." name="description"/>
+<title>FlyLab 1.2.1 — Hunger-Motivated Search</title>
+<link href="./styles.css" rel="stylesheet"/>
+<script type="importmap">
+  {
+    "imports": {
+      "three": "./vendor/three/build/three.module.js",
+      "three/addons/": "./vendor/three/addons/"
+    }
+  }
+  </script>
+</head>
+<body>
+<main class="app-shell">
+<header class="topbar">
+<div>
+<div class="eyebrow">CONNECTOME-READY BEHAVIOR LAB · FEED · CLIMB · FLY</div>
+<h1>FlyLab <span>1.2.1</span></h1>
+<p>Una mosca autónoma con MaleCNS que puede aprender en línea cómo convertir órdenes descendentes en locomoción corporal estable.</p>
+</div>
+<div class="status-cluster">
+<span class="status-dot" id="statusDot"></span>
+<span id="statusText">Preparando simulación…</span>
+</div>
+</header>
+<section aria-label="Controles principales" class="toolbar">
+<button aria-label="Pausar o continuar" class="primary tool-btn" id="runBtn" title="Pausar o continuar" type="button"><span class="tool-ico">⏯</span></button>
+<button aria-label="Forzar despegue" class="flight tool-btn" id="flightBtn" title="Forzar despegue" type="button"><span class="tool-ico">🪽</span></button>
+<button aria-label="Nuevo ensayo (borra memoria y repone alimento)" class="tool-btn" id="resetFlyBtn" title="Nuevo ensayo" type="button"><span class="tool-ico">↺</span></button>
+<button aria-label="Borrar memoria" class="tool-btn" id="clearMemoryBtn" title="Borrar memoria" type="button"><span class="tool-ico">◌</span></button>
+<div aria-hidden="true" class="separator"></div>
+<label class="inline-field brain-field">Cerebro
+  <select id="brainMode">
+    <option value="proxy">Proxy</option>
+    <option value="malecns-observe">MaleCNS Observe</option>
+    <option value="malecns-control">MaleCNS Control</option>
+  </select>
+</label>
+<label class="inline-field" title="Fluido mantiene el movimiento mientras calcula la red y prioriza muestras recientes. Sincronizado conserva cada muestra y espera a la red.">Ritmo neuronal
+  <select id="neuralPacing">
+    <option value="interactive" selected>Fluido</option>
+    <option value="synchronized">Sincronizado</option>
+  </select>
+</label>
+<span class="brain-status" id="maleStatus" title="Estado del puente MaleCNS"><i></i><span>Proxy</span></span>
+<div aria-hidden="true" class="separator"></div>
+<label class="inline-field">Fruta
+        <select id="fruitType">
+<option value="apple">Manzana</option>
+<option value="banana">Banana</option>
+<option value="orange">Naranja</option>
+<option value="grape">Uva</option>
+<option value="strawberry">Fresa</option>
+</select>
+</label>
+<button aria-label="Añadir fruta" class="accent tool-btn" id="addFruitBtn" title="Añadir fruta" type="button"><span class="tool-ico">＋🍎</span></button>
+<button aria-label="Quitar todas las frutas" class="tool-btn" id="clearFruitsBtn" title="Quitar todas las frutas" type="button"><span class="tool-ico">⌫🍎</span></button>
+</section>
+<section class="specimen-controls" aria-label="Ensayo y selección">
+<span class="specimen-tag">D. MELANOGASTER <small>modelo anatómico procedural</small></span>
+<label>Frutas <select id="fruitList"><option value="">Seleccionar fruta…</option></select></label>
+<button id="addCenterBtn" type="button">Añadir en espacio libre</button>
+<label>Calidad <select id="qualitySelect"><option value="high">Alta</option><option value="low">Ligera</option></select></label>
+<a class="atlas-link" href="./anatomia.html">Atlas anatómico ↗</a><button id="exportSessionBtn" type="button">Guardar ensayo JSON</button>
+</section><section class="workspace">
+<div class="viewport-wrap">
+<div aria-label="Arena tridimensional de FlyLab" class="viewport" id="viewport"></div>
+<div class="view-hud top-left">
+<div class="hud-label">ENSAYO</div>
+<div class="hud-value" id="clockValue">0.0 s</div>
+</div>
+<div class="view-hud top-right">
+<div class="hud-label">LOCOMOCIÓN</div>
+<div class="hud-value mode" id="modeHud">TIERRA</div>
+<div class="hud-sub" id="altitudeHud">0.20 m</div>
+<div class="hud-sub" id="surfaceHud">suelo</div>
+</div>
+<div class="view-hud bottom-left legend-hud">
+<div><span class="legend-dot fly"></span>Mosca</div>
+<div><span class="legend-dot odor"></span>Volumen odorífero</div>
+<div><span class="legend-line"></span>Trayectoria 3D</div>
+<div><span class="legend-dot neural"></span>Actividad neural funcional</div>
+</div>
+<div class="placement-hint" hidden="" id="placementHint">Haz clic en el suelo para colocar la fruta</div>
+<div aria-label="Vista y paneles" class="viewport-actions">
+<button aria-controls="sidePanel" aria-expanded="false" class="icon-action active" id="panelToggleBtn" title="Mostrar instrumentación" type="button"><span class="action-icon">☰</span><span class="action-label">Datos</span></button>
+<button class="icon-action" id="resetCameraBtn" title="Restablecer cámara" type="button"><span class="action-icon">⌂</span><span class="action-label">Cámara</span></button>
+<button aria-pressed="false" class="icon-action" id="neuralInspectorBtn" title="Seguir mosca e inspeccionar actividad neural" type="button"><span class="action-icon">◉</span><span class="action-label">Neural</span></button>
+<button aria-pressed="false" class="icon-action" id="flyViewBtn" title="Ver desde la cabeza de la mosca" type="button"><span class="action-icon">👁</span><span class="action-label">Mosca</span></button>
+<button class="icon-action" id="focusBtn" title="Modo observación / pantalla completa" type="button"><span class="action-icon">⛶</span><span class="action-label">Pantalla</span></button>
+</div>
+<section class="neural-inspector" id="neuralInspector" hidden>
+  <div class="ni-head">
+    <div><span class="ni-kicker">NEURAL INSPECTOR</span><strong id="niAction">explorando</strong></div>
+    <div class="ni-head-actions"><span id="niDominant">AL</span><button aria-label="Cerrar inspector neural" id="niCloseBtn" title="Cerrar inspector" type="button">×</button></div>
+  </div>
+  <div class="ni-body">
+    <div class="ni-brain-wrap">
+      <svg aria-label="Mapa funcional neural" class="ni-brain" role="img" viewBox="0 0 260 145">
+        <path class="ni-outline" d="M34,72 C34,28 77,16 116,25 C132,7 166,13 180,32 C217,25 238,50 232,80 C247,101 224,128 195,124 C176,143 146,137 134,122 C116,141 84,137 73,121 C43,128 24,104 34,72Z"></path>
+        <path class="ni-link" d="M68 58 L106 54 L134 76 L171 88 L205 107 M68 58 L96 99 L134 76 M134 76 L137 115"></path>
+        <g class="ni-node" data-ni-region="AL"><circle cx="68" cy="58" r="18"></circle><text x="68" y="61">AL</text></g>
+        <g class="ni-node" data-ni-region="MB"><circle cx="106" cy="54" r="17"></circle><text x="106" y="57">MB</text></g>
+        <g class="ni-node" data-ni-region="CX"><circle cx="134" cy="76" r="19"></circle><text x="134" y="79">CX</text></g>
+        <g class="ni-node" data-ni-region="SEZ"><circle cx="96" cy="100" r="16"></circle><text x="96" y="103">SEZ</text></g>
+        <g class="ni-node" data-ni-region="DN"><circle cx="171" cy="89" r="17"></circle><text x="171" y="92">DN</text></g>
+        <g class="ni-node" data-ni-region="VNC"><circle cx="205" cy="108" r="18"></circle><text x="205" y="111">VNC</text></g>
+      </svg>
+      <div class="ni-mode"><span id="niMode">TIERRA</span><span id="niSurface">suelo</span></div>
+    </div>
+    <div class="ni-bars" id="niBars"></div>
+  </div>
+  <canvas aria-label="Historia reciente de actividad neural" height="88" id="neuralTraceCanvas" width="430"></canvas>
+  <div class="ni-foot"><span><b>Proxy</b> = actividad inferida</span><span><b>MaleCNS</b> = spikes agregados · Control = readout DN</span></div>
+</section>
+<div class="fly-pov-badge" id="flyPovBadge" hidden><span>VISTA DE LA MOSCA</span><small id="flyPovCaption">Aproximación visual de Drosophila · ojos compuestos simplificados</small><div class="fly-pov-switch" aria-label="Modo de visión"><button aria-pressed="false" class="mini-toggle" id="ocularModeBtn" title="Vista ocular continua" type="button">👁 Ocular</button><button aria-pressed="true" class="mini-toggle active" id="compoundModeBtn" title="Visión compuesta aproximada" type="button">⬢ Compuesta</button></div></div><canvas aria-label="Visión compuesta aproximada de la mosca" class="compound-vision" id="compoundVisionCanvas" hidden width="960" height="540"></canvas>
+<div aria-label="Controles de cámara" class="camera-help">
+<span><b>Rueda</b> zoom</span><i></i><span><b>Botón derecho</b> orbitar</span><i></i><span><b>Shift + derecho</b> desplazar</span><i></i><span><b>Clic en mosca</b> inspector neural</span><i></i><span><b>👁 Mosca</b> primera persona</span><i></i><span><b>⬢ Compuesta</b> visión de ojos compuestos</span>
+</div></div>
+<aside aria-label="Instrumentación de FlyLab" class="side-panel" id="sidePanel"><div class="panel-top"><div><span class="panel-kicker">INSTRUMENTACIÓN</span><strong>FlyLab Live</strong></div><button aria-label="Ocultar panel" class="panel-close" id="panelCloseBtn" type="button">×</button></div>
+<section class="panel-section hero-panel" data-collapsible="true" data-section-key="locomoción">
+<div class="section-head"><h2>Locomoción</h2><span>estado</span><button aria-expanded="true" aria-label="Plegar o desplegar Locomoción" class="section-toggle" type="button">⌄</button></div>
+<div class="mode-card">
+<div><small>Modo</small><strong id="modeValue">Tierra</strong></div>
+<div><small>Altitud</small><strong id="altitudeValue">0.20</strong></div>
+<div><small>Velocidad</small><strong id="speedValue">0.00</strong></div>
+</div>
+<dl class="readouts compact gait-readout"><div><dt>Marcha</dt><dd id="gaitValue">Trípode · reposo</dd></div></dl>
+<div class="adaptive-motor" id="adaptiveMotorCard">
+  <div class="adaptive-head"><label><input checked id="adaptiveToggle" type="checkbox"> Aprendizaje motor</label><button id="adaptiveResetBtn" type="button" title="Borrar únicamente lo aprendido por la locomoción">Reiniciar</button></div>
+  <div class="adaptive-grid">
+    <div><span>Estado</span><strong id="adaptiveStatusValue">esperando MaleCNS</strong></div>
+    <div><span>Generación</span><strong id="adaptiveGenerationValue">0</strong></div>
+    <div><span>Recompensa</span><strong id="adaptiveRewardValue">0.000</strong></div>
+    <div><span>Deslizamiento</span><strong id="adaptiveSlipValue">—</strong></div>
+  </div>
+  <div class="adaptive-params"><span>Política</span><code id="adaptiveParamsValue">cad 1.00 · amp 1.00 · duty +0.000 · φ +0.00</code></div>
+  <p class="model-note">MaleCNS indica avance y giro. La recompensa de esta capa usa únicamente seguimiento del comando, apoyo, deslizamiento y coste motor; <b>no conoce la posición de la fruta</b>.</p>
+</div>
+<div class="skill-head"><span>Habilidad de vuelo</span><strong id="flightSkillValue">12%</strong></div>
+<div class="skill-meter"><i id="flightSkillBar"></i></div>
+<p class="model-note">La habilidad de vuelo sigue siendo un <em>proxy</em>. En tierra, v1.2.1 puede usar una capa adaptativa separada: MaleCNS aporta la intención descendente y la locomoción aprende residuos sobre un CPG trípode.</p>
+</section>
+<section class="panel-section collapsed" data-collapsible="true" data-section-key="percepción">
+<div class="section-head"><h2>Percepción</h2><span>antenas 3D</span><button aria-expanded="false" aria-label="Plegar o desplegar Percepción" class="section-toggle" type="button">⌄</button></div>
+<div class="sensor-row"><span>Izquierda</span><div class="meter"><i id="leftOdorBar"></i></div><strong id="leftOdorValue">0.00</strong></div>
+<div class="sensor-row"><span>Derecha</span><div class="meter"><i id="rightOdorBar"></i></div><strong id="rightOdorValue">0.00</strong></div>
+<div class="sensor-row"><span>Diferencia</span><div class="meter bipolar"><i id="gradientBar"></i></div><strong id="gradientValue">0.00</strong></div>
+</section>
+<section class="panel-section collapsed" data-collapsible="true" data-section-key="cerebro">
+<div class="section-head"><h2>Cerebro</h2><span>MB proxy · control</span><button aria-expanded="false" aria-label="Plegar o desplegar Cerebro" class="section-toggle" type="button">⌄</button></div>
+<dl class="readouts">
+<div><dt>ORN drive</dt><dd id="ornValue">0.0 Hz</dd></div>
+<div><dt>KC activas</dt><dd id="kcValue">0 / 128</dd></div>
+<div><dt>Valor aprendido</dt><dd id="memoryValue">+0.00</dd></div>
+<div><dt>Dopamina</dt><dd id="dopamineValue">0.00</dd></div>
+<div><dt>Comando de giro</dt><dd id="turnValue">0.00</dd></div>
+</dl>
+</section>
+<section class="panel-section metabolism-panel collapsed" data-collapsible="true" data-section-key="metabolismo">
+<div class="section-head"><h2>Metabolismo</h2><span>alimentación</span><button aria-expanded="false" aria-label="Plegar o desplegar Metabolismo" class="section-toggle" type="button">⌄</button></div>
+<div class="metabolic-grid">
+<div><span>Energía</span><strong id="energyValue">55%</strong><div class="mini-meter"><i id="energyBar"></i></div></div>
+<div><span>Hambre</span><strong id="hungerValue">45%</strong><div class="mini-meter"><i id="hungerBar"></i></div></div>
+</div>
+<dl class="readouts compact metabolic-readouts">
+<div><dt>Estado</dt><dd id="feedingValue">Explorando</dd></div>
+<div><dt>Ingesta</dt><dd id="intakeValue">0.00</dd></div>
+</dl>
+<p class="model-note">La fruta se consume gradualmente. Volar gasta más energía que caminar; alimentarse aumenta energía y reduce hambre.</p>
+</section>
+<section class="panel-section connectome-panel" data-collapsible="true" data-section-key="actividad-del-conectoma">
+<div class="section-head"><h2>Actividad del conectoma</h2><span id="activitySource">proxy funcional</span><button aria-expanded="true" aria-label="Plegar o desplegar Actividad del conectoma" class="section-toggle" type="button">⌄</button></div>
+<div class="action-readout"><span>Acción</span><strong id="actionValue">explorando</strong></div>
+<div class="malecns-card" id="malecnsCard" hidden>
+  <div><span>Red</span><strong id="maleNetworkValue">—</strong></div>
+  <div><span>Velocidad neural</span><strong id="maleSpeedValue">—</strong></div>
+  <div><span>Neuronas despiertas</span><strong id="maleAwakeValue">—</strong></div>
+  <div><span>Top tipo</span><strong id="maleTopTypeValue">—</strong></div>
+  <div><span>Estado motor</span><strong id="maleMotorModeValue">—</strong></div>
+  <div><span>Avance DN</span><strong id="maleFwdValue">—</strong></div>
+  <div><span>Giro DN</span><strong id="maleTurnValue">—</strong></div>
+  <div><span>Despegue DN</span><strong id="maleTakeoffValue">—</strong></div>
+  <div><span>Feed MN</span><strong id="maleFeedValue">—</strong></div>
+  <div><span>Motivación pared</span><strong id="maleWallMotivationValue">—</strong></div>
+  <div><span>Olor fruta Δ</span><strong id="maleOdorTrendValue">—</strong></div>
+</div>
+<div aria-label="Mapa funcional de actividad neural" class="brain-map" id="brainMap">
+<svg role="img" viewbox="0 0 280 155">
+<path class="brain-outline" d="M37,76 C37,28 83,14 124,25 C140,6 177,12 190,33 C228,25 250,52 241,84 C259,105 233,137 203,130 C182,151 150,144 139,127 C119,149 86,144 76,126 C44,131 25,106 37,76Z"></path>
+<g class="brain-links">
+<path d="M74 63 L112 57 L139 79 L176 92 L211 111"></path><path d="M74 63 L100 101 L139 79"></path><path d="M139 79 L142 119"></path>
+</g>
+<g class="region-node" data-region="AL"><circle cx="72" cy="62" r="18"></circle><text x="72" y="65">AL</text></g>
+<g class="region-node" data-region="MB"><circle cx="112" cy="55" r="17"></circle><text x="112" y="58">MB</text></g>
+<g class="region-node" data-region="CX"><circle cx="140" cy="80" r="19"></circle><text x="140" y="83">CX</text></g>
+<g class="region-node" data-region="SEZ"><circle cx="101" cy="105" r="16"></circle><text x="101" y="108">SEZ</text></g>
+<g class="region-node" data-region="DN"><circle cx="177" cy="93" r="17"></circle><text x="177" y="96">DN</text></g>
+<g class="region-node" data-region="VNC"><circle cx="211" cy="113" r="18"></circle><text x="211" y="116">VNC</text></g>
+</svg>
+</div>
+<div class="region-bars" id="regionBars"></div>
+<div class="activity-foot"><span>Dominante: <strong id="dominantRegion">AL</strong></span><button aria-label="Exportar actividad CSV" class="tool-btn small-export" id="exportActivityBtn" title="Exportar actividad CSV" type="button"><span class="tool-ico">⇩</span></button></div>
+<p class="model-note">Salida de atascos: asistencia corporal tras 4 s sin progreso; se registra aparte de MaleCNS.</p>
+<p class="model-note" id="connectomeNote"><strong>Proxy</strong> usa canales funcionales inferidos. En <strong>MaleCNS Observe/Control</strong>, AL/MB/CX/SEZ/DN/VNC se agregan desde spikes del grafo MaleCNS. <strong>Control</strong> usa DNs reales para avance, retroceso, giro y despegue; aterrizaje y alimentación siguen siendo políticas corporales explícitas en v1.0.</p>
+</section>
+<section class="panel-section collapsed" data-collapsible="true" data-section-key="experimento">
+<div class="section-head"><h2>Experimento</h2><span>en vivo</span><button aria-expanded="false" aria-label="Plegar o desplegar Experimento" class="section-toggle" type="button">⌄</button></div>
+<dl class="readouts compact">
+<div><dt>Contactos</dt><dd id="contactValue">0</dd></div>
+<div><dt>Colisiones</dt><dd id="collisionValue">0</dd></div>
+<div><dt>Recompensa</dt><dd id="rewardValue">0.00</dd></div>
+<div><dt>Distancia 3D</dt><dd id="distanceValue">0.0</dd></div>
+<div><dt>Tiempo en vuelo</dt><dd id="airTimeValue">0.0 s</dd></div>
+<div><dt>Tiempo en pared</dt><dd id="wallTimeValue">0.0 s</dd></div>
+<div><dt>Primera fruta</dt><dd id="firstFruitValue">—</dd></div>
+</dl>
+<label class="check-row"><input checked="" id="odorFieldToggle" type="checkbox"/> Mostrar volúmenes odoríferos</label>
+<label class="check-row"><input checked="" id="trailToggle" type="checkbox"/> Mostrar trayectoria 3D</label>
+<label class="check-row"><input checked="" id="activityToggle" type="checkbox"/> Actualizar panel de actividad</label>
+</section>
+<section class="panel-section selected-panel" data-collapsible="true" data-section-key="fruta-seleccionada" id="selectedPanel">
+<div class="section-head"><h2>Fruta seleccionada</h2><span id="selectedFruitName">ninguna</span><button aria-expanded="true" aria-label="Plegar o desplegar Fruta seleccionada" class="section-toggle" type="button">⌄</button></div>
+<div class="empty-state" id="noSelection">Haz clic sobre una fruta para seleccionarla y arrástrala. Su volumen bloquea físicamente a la mosca.</div>
+<div hidden="" id="selectionControls">
+<label>Intensidad de olor <output id="odorStrengthOut">1.00</output><input id="odorStrength" max="2" min="0.1" step="0.05" type="range" value="1"/></label>
+<label>Recompensa <output id="rewardOut">1.00</output><input id="fruitReward" max="1" min="-1" step="0.05" type="range" value="1"/></label>
+<label>Alimento restante <output id="foodAmountOut">100%</output><input id="foodAmount" max="1" min="0" step="0.05" type="range" value="1"/></label>
+<div class="xy-grid">
+<label>X <input id="fruitX" max="5.5" min="-5.5" step="0.1" type="number"/></label>
+<label>Z <input id="fruitZ" max="5.5" min="-5.5" step="0.1" type="number"/></label>
+</div>
+<button aria-label="Eliminar fruta" class="danger tool-btn" id="deleteFruitBtn" title="Eliminar fruta" type="button"><span class="tool-ico">🗑</span></button>
+</div>
+</section>
+</aside>
+</section>
+<section class="method-strip">
+<div><strong>1 · Mundo 3D</strong><span>frutas con volumen + plumas 3D</span></div><div class="arrow">→</div>
+<div><strong>2 · Sensación</strong><span>antena L / R en el espacio</span></div><div class="arrow">→</div>
+<div><strong>3 · Cerebro</strong><span>ORN → KC → MBON/DAN</span></div><div class="arrow">→</div>
+<div><strong>4 · Acción</strong><span>caminar ↔ trepar ↔ despegar ↔ volar ↔ aterrizar</span></div><div class="arrow">→</div>
+<div><strong>5 · Aprendizaje</strong><span>olor + alimento + recompensa + habilidad motora</span></div>
+</section>
+<footer>
+<p><strong>Estado científico:</strong> prototipo experimental. La mosca nunca recibe las coordenadas de las frutas. Las colisiones usan volúmenes elipsoidales conservadores; el aprendizaje motor y parte del mapa funcional neural todavía son proxies explícitos.</p>
+<p>FlyLab 1.2.1 · GitHub Pages · WebGL · MaleCNS Observe/Control · sin backend.</p>
+</footer>
+</main>
+<script type="module">
+import('./src/main.js').catch(error=>{document.getElementById('statusText').textContent='No se pudo iniciar la vista 3D. Usa un navegador con WebGL y abre el proyecto con un servidor local.';document.getElementById('viewport').textContent=error.message;console.error(error);});
+</script>
+</body>
+</html>
