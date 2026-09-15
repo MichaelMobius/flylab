@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use FlyLab in research or teaching, please cite the software."
+title: "FlyLab: an experimental browser-based laboratory for embodied connectomics"
+type: software
+authors:
+  - family-names: Hurtado
+    given-names: Michael
+version: 1.2.1
+date-released: 2026-09-15
+repository-code: "https://github.com/MichaelMobius/flylab"
+license: MIT
+keywords:
+  - connectomics
+  - drosophila
+  - computational neuroscience
+  - embodied AI
+  - artificial life

@@ -1,24 +1,23 @@
-# Optional local MaleCNS data
+# MaleCNS data mirror
 
-FlyLab does not bundle the connectome binaries by default.
+FlyLab keeps the compact MaleCNS files required by the browser bridge in `data/malecns/`.
 
-To self-host the compact MaleCNS bridge, copy these files here:
-
-- `neurons.flyn`
-- `graph.flyg`
-- `meta.json`
-- `bodymap.json`
-
-Then open FlyLab in observation mode with:
+The mirror is generated from the pinned `Lulzx/fly-brain` commit:
 
 ```text
-?brain=observe&malecnsBase=./data/
+4a8a8ebe2b8713106b605f5e32bc8458d65e0f16
 ```
 
-or in descending-neuron control mode with:
+Expected files:
 
 ```text
-?brain=control&malecnsBase=./data/
+data/malecns/graph.flyg
+data/malecns/neurons.flyn
+data/malecns/meta.json
+data/malecns/bodymap.json
+data/malecns/MANIFEST.json
 ```
 
-The legacy alias `?brain=malecns` still resolves to observation mode. The default remote source is pinned to the `Lulzx/fly-brain` commit documented in `README.md`.
+`MANIFEST.json` records SHA-256 checksums, file sizes and source paths. See `../THIRD_PARTY_NOTICES.md` for attribution and licensing notes.
+
+A custom data base can still be supplied with the `malecnsBase` query parameter for controlled experiments.
