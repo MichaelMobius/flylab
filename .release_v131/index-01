@@ -1,0 +1,61 @@
+      <svg aria-label="Mapa funcional neural" class="ni-brain" role="img" viewBox="0 0 260 145">
+        <path class="ni-outline" d="M34,72 C34,28 77,16 116,25 C132,7 166,13 180,32 C217,25 238,50 232,80 C247,101 224,128 195,124 C176,143 146,137 134,122 C116,141 84,137 73,121 C43,128 24,104 34,72Z"></path>
+        <path class="ni-link" d="M68 58 L106 54 L134 76 L171 88 L205 107 M68 58 L96 99 L134 76 M134 76 L137 115"></path>
+        <g class="ni-node" data-ni-region="AL"><circle cx="68" cy="58" r="18"></circle><text x="68" y="61">AL</text></g>
+        <g class="ni-node" data-ni-region="MB"><circle cx="106" cy="54" r="17"></circle><text x="106" y="57">MB</text></g>
+        <g class="ni-node" data-ni-region="CX"><circle cx="134" cy="76" r="19"></circle><text x="134" y="79">CX</text></g>
+        <g class="ni-node" data-ni-region="SEZ"><circle cx="96" cy="100" r="16"></circle><text x="96" y="103">SEZ</text></g>
+        <g class="ni-node" data-ni-region="DN"><circle cx="171" cy="89" r="17"></circle><text x="171" y="92">DN</text></g>
+        <g class="ni-node" data-ni-region="VNC"><circle cx="205" cy="108" r="18"></circle><text x="205" y="111">VNC</text></g>
+      </svg>
+      <div class="ni-mode"><span id="niMode">TIERRA</span><span id="niSurface">suelo</span></div>
+    </div>
+    <div class="ni-bars" id="niBars"></div>
+  </div>
+  <canvas aria-label="Historia reciente de actividad neural" height="88" id="neuralTraceCanvas" width="430"></canvas>
+  <div class="ni-foot"><span><b>Proxy</b> = actividad inferida</span><span><b>MaleCNS</b> = spikes agregados · Control = readout DN</span></div>
+</section>
+<div class="fly-pov-badge" id="flyPovBadge" hidden><span>VISTA DE LA MOSCA</span><small id="flyPovCaption">Aproximación visual de Drosophila · ojos compuestos simplificados</small><div class="fly-pov-switch" aria-label="Modo de visión"><button aria-pressed="false" class="mini-toggle" id="ocularModeBtn" title="Vista ocular continua" type="button">👁 Ocular</button><button aria-pressed="true" class="mini-toggle active" id="compoundModeBtn" title="Visión compuesta aproximada" type="button">⬢ Compuesta</button></div></div><canvas aria-label="Visión compuesta aproximada de la mosca" class="compound-vision" id="compoundVisionCanvas" hidden width="960" height="540"></canvas>
+<div aria-label="Controles de cámara" class="camera-help">
+<span><b>Rueda</b> zoom</span><i></i><span><b>Botón derecho</b> orbitar</span><i></i><span><b>Shift + derecho</b> desplazar</span><i></i><span><b>Clic en mosca</b> inspector neural</span><i></i><span><b>👁 Mosca</b> primera persona</span><i></i><span><b>⬢ Compuesta</b> visión de ojos compuestos</span>
+</div></div>
+<aside aria-label="Instrumentación de FlyLab" class="side-panel" id="sidePanel"><div class="panel-top"><div><span class="panel-kicker">INSTRUMENTACIÓN</span><strong>FlyLab Live</strong></div><button aria-label="Ocultar panel" class="panel-close" id="panelCloseBtn" type="button">×</button></div>
+<section class="panel-section hero-panel" data-collapsible="true" data-section-key="locomoción">
+<div class="section-head"><h2>Locomoción</h2><span>estado</span><button aria-expanded="true" aria-label="Plegar o desplegar Locomoción" class="section-toggle" type="button">⌄</button></div>
+<div class="mode-card">
+<div><small>Modo</small><strong id="modeValue">Tierra</strong></div>
+<div><small>Altitud</small><strong id="altitudeValue">0.20</strong></div>
+<div><small>Velocidad</small><strong id="speedValue">0.00</strong></div>
+</div>
+<dl class="readouts compact gait-readout"><div><dt>Marcha</dt><dd id="gaitValue">Trípode · reposo</dd></div></dl>
+<div class="adaptive-motor" id="adaptiveMotorCard">
+  <div class="adaptive-head"><label><input checked id="adaptiveToggle" type="checkbox"> Aprendizaje motor</label><button id="adaptiveResetBtn" type="button" title="Borrar únicamente lo aprendido por la locomoción">Reiniciar</button></div>
+  <div class="adaptive-grid">
+    <div><span>Estado</span><strong id="adaptiveStatusValue">esperando MaleCNS</strong></div>
+    <div><span>Generación</span><strong id="adaptiveGenerationValue">0</strong></div>
+    <div><span>Recompensa</span><strong id="adaptiveRewardValue">0.000</strong></div>
+    <div><span>Deslizamiento</span><strong id="adaptiveSlipValue">—</strong></div>
+  </div>
+  <div class="adaptive-params"><span>Política</span><code id="adaptiveParamsValue">cad 1.00 · amp 1.00 · duty +0.000 · φ +0.00</code></div>
+  <p class="model-note">MaleCNS indica avance y giro. La recompensa de esta capa usa únicamente seguimiento del comando, apoyo, deslizamiento y coste motor; <b>no conoce la posición de la fruta</b>.</p>
+</div>
+<div class="skill-head"><span>Habilidad de vuelo</span><strong id="flightSkillValue">12%</strong></div>
+<div class="skill-meter"><i id="flightSkillBar"></i></div>
+<p class="model-note">La habilidad de vuelo sigue siendo un <em>proxy</em>. En tierra, v1.3.1 puede usar una capa adaptativa separada: MaleCNS aporta la intención descendente y la locomoción aprende residuos sobre un CPG trípode.</p>
+</section>
+<section class="panel-section collapsed" data-collapsible="true" data-section-key="percepción">
+<div class="section-head"><h2>Percepción</h2><span>antenas 3D</span><button aria-expanded="false" aria-label="Plegar o desplegar Percepción" class="section-toggle" type="button">⌄</button></div>
+<div class="sensor-row"><span>Izquierda</span><div class="meter"><i id="leftOdorBar"></i></div><strong id="leftOdorValue">0.00</strong></div>
+<div class="sensor-row"><span>Derecha</span><div class="meter"><i id="rightOdorBar"></i></div><strong id="rightOdorValue">0.00</strong></div>
+<div class="sensor-row"><span>Diferencia</span><div class="meter bipolar"><i id="gradientBar"></i></div><strong id="gradientValue">0.00</strong></div>
+</section>
+<section class="panel-section collapsed" data-collapsible="true" data-section-key="cerebro">
+<div class="section-head"><h2>Cerebro</h2><span>MB proxy · control</span><button aria-expanded="false" aria-label="Plegar o desplegar Cerebro" class="section-toggle" type="button">⌄</button></div>
+<dl class="readouts">
+<div><dt>ORN drive</dt><dd id="ornValue">0.0 Hz</dd></div>
+<div><dt>KC activas</dt><dd id="kcValue">0 / 128</dd></div>
+<div><dt>Valor aprendido</dt><dd id="memoryValue">+0.00</dd></div>
+<div><dt>Dopamina</dt><dd id="dopamineValue">0.00</dd></div>
+<div><dt>Comando de giro</dt><dd id="turnValue">0.00</dd></div>
+</dl>
+</section>
