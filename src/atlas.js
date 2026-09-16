@@ -24,4 +24,3 @@ document.getElementById('front').onclick=()=>camera.position.copy(controls.targe
 document.getElementById('wings').onclick=()=>{spread=!spread;document.getElementById('wings').setAttribute('aria-pressed',String(spread));document.getElementById('wings').textContent=spread?'Plegar alas':'Extender alas';};
 addEventListener('resize',()=>{renderer.setSize(innerWidth,innerHeight);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();});
 function frame(){if(type==='fly')for(const w of model.userData.wings){w.pivot.rotation.y=-w.side*(spread?1.13:.16);}controls.update();renderer.render(scene,camera);requestAnimationFrame(frame);}frame();
-
