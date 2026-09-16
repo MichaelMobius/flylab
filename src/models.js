@@ -192,3 +192,4 @@ export function createFruitMesh(type){
  const ring=mesh(root,new THREE.TorusGeometry(.50,.012,8,48),new THREE.MeshBasicMaterial({color:0xd0a95f,transparent:true,opacity:0,depthWrite:false}),[0,.012,0]);ring.rotation.x=-Math.PI/2;ring.castShadow=false;root.userData.consumeRing=ring;
  root.userData.materials=[];visual.traverse(o=>{if(o.material&&!o.userData.pickProxy&&!root.userData.materials.includes(o.material))root.userData.materials.push(o.material);});return root;
 }
+

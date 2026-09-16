@@ -14,13 +14,14 @@ const GROUND_Y = 0.20;
 const MAX_ALTITUDE = 4.25;
 const FLY_RADIUS = 0.16;
 import {createFly,createFruitMesh,animateFlyLegs} from './models.js';
+import {updateGrooming} from './grooming.js';
 import {captureCornerPose,startCorner} from './corner.js';
 import {FIXED_DT,FixedStepper,seededRandom,planarFrame,consumeFlightCommand,sensoryAverage,resetExperimentState} from './runtime.js';
 import {createTripodGaitState,resetTripodGait,updateTripodGait,tripodPropulsion} from './gait.js';
 import {AdaptiveMotorLearner} from './adaptive/motor_learning.js';
 const seed=Number(new URLSearchParams(location.search).get('seed')||1337)>>>0;
 let random=seededRandom(seed);const stepper=new FixedStepper();
-const session={version:'1.2.1',seed,step:FIXED_DT,events:[],samples:[],initial:null};
+const session={version:'1.3.1',seed,step:FIXED_DT,events:[],samples:[],initial:null};
 function logEvent(type,data={}){session.events.push({t:state.t,tick:state.ticks,type,...data});}
 function scenario(){return state.fruits.map(({id,type,x,z,strength,reward,amount,sigma,odorY})=>({id,type,x,z,strength,reward,amount,sigma,odorY}));}
 function notice(message){ui.statusText.textContent=message;}
@@ -274,9 +275,9 @@ function surfaceFrame(surface,heading){
 }
 function headingFromWorld(surface,dir){ const s=SURFACES[surface]||SURFACES.floor; return Math.atan2(dir.dot(s.b),dir.dot(s.a)); }
 function attachWall(name,oldDir){
-  const f=state.fly,wasLanding=f.mode==='landing'; f.surface=name; f.mode='ground'; f.modeTime=0; f.vy=0; f.wallStall=0;f.landingSurface=null;f.blocked=0;state.gait.grounded=true;
+  const f=state.fly,wasLanding=f.mode==='landing',landingHeading=f.landingHeading;if(wasLanding)f.wingFold=0; f.legAnchors=null;f.legSteps=null;f.lastGroundPose=null;f.surface=name; f.mode='ground'; f.modeTime=0; f.vy=0; f.wallStall=0;f.landingSurface=null;f.blocked=0;state.gait.grounded=true;
   if(wasLanding){state.motor.safeLandings++;logEvent('wall-landing',{surface:name,source:'body-policy'});}
-  const s=SURFACES[name]; const side=THREE.MathUtils.clamp(oldDir.dot(s.a),-.65,.65); const dir=s.a.clone().multiplyScalar(side).addScaledVector(s.b,.82).normalize(); f.heading=headingFromWorld(name,dir);
+  const s=SURFACES[name]; const side=THREE.MathUtils.clamp(oldDir.dot(s.a),-.65,.65); const dir=s.a.clone().multiplyScalar(side).addScaledVector(s.b,.82).normalize(); f.heading=wasLanding&&Number.isFinite(landingHeading)?landingHeading:headingFromWorld(name,dir);
   if(name==='wall-x+')f.x=SURFACE_BOUND;if(name==='wall-x-')f.x=-SURFACE_BOUND;if(name==='wall-z+')f.z=SURFACE_BOUND;if(name==='wall-z-')f.z=-SURFACE_BOUND; f.y=Math.max(.55,f.y);
   stopFeeding(); updateFlightButton();
 }
@@ -303,7 +304,7 @@ function setMode(mode){
     if(prevSurface!=='floor'){ const n=SURFACES[prevSurface].normal; f.x+=n.x*.24;f.y+=n.y*.24;f.z+=n.z*.24; const h=new THREE.Vector3(n.x,0,n.z); if(h.lengthSq()>.01)f.heading=Math.atan2(h.z,h.x); f.speed=Math.max(f.speed,.42); }
     f.surface='air'; stopFeeding();
   }
-  f.corner=null; f.mode=mode; f.modeTime=0;if(mode!=='landing')f.landingSurface=null;
+  f.legAnchors=null;f.legSteps=null;f.lastGroundPose=null;f.corner=null; f.mode=mode; f.modeTime=0;if(mode!=='landing')f.landingSurface=null;
   if(mode==='ground'){
     if(f.surface==='air')f.surface='floor'; if(f.surface==='floor')f.y=GROUND_Y; f.vy=0;
     if(previous==='landing'){ state.motor.safeLandings++; state.motor.flightSkill=Math.min(1,state.motor.flightSkill+.012); }
@@ -312,7 +313,7 @@ function setMode(mode){
 }
 function updateFlightButton(){ const takeoff=state.fly.mode==='ground'; ui.flightBtn.innerHTML=`<span class="tool-ico">${takeoff?'🪽':'🛬'}</span>`; ui.flightBtn.title=takeoff?'Forzar despegue':'Forzar aterrizaje'; ui.flightBtn.setAttribute('aria-label', ui.flightBtn.title); }
 function resetFly(){
- state.fly.corner=null;state.fly.bodyQuaternion=null;state.fly.bodyFloorHeight=0;state.fly.bodyContact=null;
+ state.fly.groom=null;state.fly.legAnchors=null;state.fly.legSteps=null;state.fly.lastGroundPose=null;state.fly.corner=null;state.fly.bodyQuaternion=null;state.fly.bodyFloorHeight=0;state.fly.bodyContact=null;
  random=seededRandom(seed);resetExperimentState(state);brain.clearMemory();stepper.clear();resetTripodGait(state.gait);
  Object.assign(state.fly,{x:-3.6,y:GROUND_Y,z:2.8,heading:-.7,speed:0,vy:0,mode:'ground',surface:'floor',modeTime:0,blocked:0,landingSurface:null,roll:0,pitch:0,command:null});
  Object.assign(state.odorTrace,{raw:0,filtered:0,trend:0,ready:false});
@@ -334,11 +335,35 @@ function updateFlyMesh(t){
   const f=state.fly;const frame=f.mode==='ground'?surfaceFrame(f.surface,f.heading):surfaceFrame('floor',f.heading);
   poseFly(flyMesh,f,state.gait,state.metabolism.feeding,t,frame);
 }
+function prepareLanding(){
+ const f=state.fly;if(f.mode==='ground'||f.mode==='takeoff')return;
+ if(f.landingSurface){
+  const wall=f.landingSurface,normal=SURFACES[wall].normal,gap=HALF-.0175-(wall.endsWith('+')?f[wall[5]]:-f[wall[5]]);
+  if(gap<1.2&&f.y>=.55){f.heading=Math.atan2(-normal.z,-normal.x);return;}
+  f.landingSurface=null;f.landingHeading=null;
+ }
+ const eligible=f.mode==='landing'||(f.mode==='flight'&&f.modeTime>2&&(state.metabolism.energy<.75||f.modeTime>8));
+ if(!eligible||f.y<.55||f.y>MAX_ALTITUDE)return;
+ const direction=new THREE.Vector3(Math.cos(f.heading),0,Math.sin(f.heading));
+ for(const name of ['wall-x+','wall-x-','wall-z+','wall-z-']){
+  const normal=SURFACES[name].normal,axis=name[5],gap=HALF-.0175-(name.endsWith('+')?f[axis]:-f[axis]);
+  if(gap>.85||direction.dot(normal)>-.25)continue;
+  if(f.mode!=='landing')setMode('landing');
+  if(f.landingSurface!==name){
+   f.landingSurface=name;const s=SURFACES[name],side=THREE.MathUtils.clamp(direction.dot(s.a),-.65,.65);
+   f.landingHeading=headingFromWorld(name,s.a.clone().multiplyScalar(side).addScaledVector(s.b,.82).normalize());
+   logEvent('wall-approach',{surface:name,source:'body-policy'});
+  }
+  f.heading=Math.atan2(-normal.z,-normal.x);break;
+ }
+}
 function resolveBodyContact(dt){
-  const f=state.fly,frame=f.mode==='ground'?surfaceFrame(f.surface,f.heading):surfaceFrame('floor',f.heading);
+  prepareLanding();
+  const f=state.fly,frame=f.mode==='ground'?surfaceFrame(f.surface,f.heading):f.landingSurface?surfaceFrame(f.landingSurface,f.landingHeading):surfaceFrame('floor',f.heading);
   const contact=bodyCollider.resolve(f,state.gait,{frame,dt,t:state.t,feeding:state.metabolism.feeding,half:HALF});
   if(f.corner)return;
-  const towardX=contact.x*frame.forward.x*f.speed<0,towardZ=contact.z*frame.forward.z*f.speed<0;
+  const movement=f.mode==='ground'?frame.forward:new THREE.Vector3(Math.cos(f.heading),0,Math.sin(f.heading));
+  const towardX=contact.x*movement.x*f.speed<0,towardZ=contact.z*movement.z*f.speed<0;
   if(f.mode==='ground'&&f.surface==='floor'&&(towardX||towardZ)){
     const wall=towardX?(contact.x<0?'wall-x+':'wall-x-'):(contact.z<0?'wall-z+':'wall-z-');
     attachWall(wall,frame.forward.clone().multiplyScalar(Math.sign(f.speed)||1));
@@ -365,7 +390,7 @@ function resolveBodyContact(dt){
       if(f.mode!=='landing')setMode('landing');
       if(f.landingSurface!==wall){f.landingSurface=wall;logEvent('wall-approach',{surface:wall,source:'body-policy'});}
       const n=SURFACES[wall].normal;f.heading=Math.atan2(-n.z,-n.x);
-      if(gap<=.48){
+      if(gap<=.25&&f.landingAligned){
         attachWall(wall,frame.forward);
         bodyCollider.resolve(f,state.gait,{frame:surfaceFrame(f.surface,f.heading),dt:0,t:state.t,half:HALF});
       }
@@ -427,7 +452,7 @@ function locomotorSignals(b){
   return {source:'malecns',turn:THREE.MathUtils.clamp(m.turn||0,-.6,.6),approach:THREE.MathUtils.clamp(Math.max(0,m.v||0),0,1),v:THREE.MathUtils.clamp(m.v||0,-.35,1),motor:m};
 }
 function autonomousModeDecision(odorMean,b,dt){
-  const f=state.fly;const commanded=consumeFlightCommand(f);if(commanded){setMode(commanded);return;}if(state.metabolism.feeding)return;
+  const f=state.fly;const commanded=consumeFlightCommand(f);if(commanded){setMode(commanded);return;}if(state.metabolism.feeding||f.groom?.pause)return;
   // Body-time recovery remains responsive when neural time lags in fluid pacing.
   if(f.mode==='ground'&&f.surface!=='floor'&&(f.wallStall||0)>4){
     const surface=f.surface;const reason='wall-stall';
@@ -455,7 +480,7 @@ function autonomousModeDecision(odorMean,b,dt){
 }
 
 function moveOnSurface(dt,desiredSpeed,turnRate){
-  const f=state.fly; if(f.corner){state.wallTime+=dt;return {distance:0,forwardSpeed:0};} f.heading+=turnRate*dt; f.speed+=(desiredSpeed-f.speed)*Math.min(1,dt*3.2); const fr=surfaceFrame(f.surface,f.heading); const prev={x:f.x,y:f.y,z:f.z};
+  const f=state.fly; if(f.groom?.pause){f.speed=f.groom.active?0:f.speed*Math.exp(-dt*8);f.wallStall=0;return {distance:0,forwardSpeed:0};} if(f.corner){state.wallTime+=dt;return {distance:0,forwardSpeed:0};} f.heading+=turnRate*dt; f.speed+=(desiredSpeed-f.speed)*Math.min(1,dt*3.2); const fr=surfaceFrame(f.surface,f.heading); const prev={x:f.x,y:f.y,z:f.z};
   let next={x:f.x+fr.forward.x*f.speed*dt,y:f.y+fr.forward.y*f.speed*dt,z:f.z+fr.forward.z*f.speed*dt};
   if(f.surface==='floor'){
     let wall=null;
@@ -496,25 +521,27 @@ function simulate(dt){
   const b=brain.step({leftMixture:L.mixture,rightMixture:R.mixture,dt,exploration:state.explore});
   state.sensedMixture=sensoryAverage(L.mixture,R.mixture);updateMetabolism(dt);
   const odorMean=(L.total+R.total)/2; const odorTrace=updateFruitOdorTrace(odorMean,dt); autonomousModeDecision(odorMean,b,dt);
+  const groomingEvent=updateGrooming(state.fly,dt,{feeding:state.metabolism.feeding,support:state.fly.support?.feet||0});
+  if(groomingEvent)logEvent('groom-'+groomingEvent,{source:'body-policy'});
 
   const sig=locomotorSignals(b);
   const f=state.fly, skill=state.motor.flightSkill, hungerDrive=.82+.36*state.metabolism.hunger; let turnRate=0,desiredSpeed=0,targetAlt=f.y;
   if(f.mode==='ground'){
-    desiredSpeed=state.metabolism.feeding?.0:(sig.source==='malecns'?sig.v*.92:(.34+.50*sig.approach)*hungerDrive);
+    desiredSpeed=(state.metabolism.feeding||f.groom?.pause)?.0:(sig.source==='malecns'?sig.v*.92:(.34+.50*sig.approach)*hungerDrive);
     const turnMobility=sig.source==='malecns'?(Math.abs(desiredSpeed)>.06?1:(Math.abs(sig.turn)>.38?.55:.12)):1;
-    const desiredTurnRate=2.05*sig.turn*turnMobility;
+    const desiredTurnRate=f.groom?.pause?0:2.05*sig.turn*turnMobility;
     f.vy=0; f.pitch=THREE.MathUtils.lerp(f.pitch,0,.12); f.roll=THREE.MathUtils.lerp(f.roll,-.10*sig.turn,.10);
     if(adaptiveEnabled()){
       // Embodied mode: DN commands are targets, not body velocities. The CPG and learned residual
       // determine stance-foot propulsion; the resulting traction moves the body.
       const params=motorLearner.params();
-      updateTripodGait(state.gait,dt,{grounded:true,feeding:state.metabolism.feeding,speed:f.speed,desiredSpeed,turn:sig.turn,modifiers:params});
+      updateTripodGait(state.gait,dt,{grounded:true,feeding:state.metabolism.feeding||!!f.groom?.pause,speed:f.speed,desiredSpeed,turn:f.groom?.pause?0:sig.turn,modifiers:params});
       const prop=tripodPropulsion(state.gait,dt);
-      const bodyDrive=THREE.MathUtils.clamp(prop.speed,-.46,1.12);
-      turnRate=THREE.MathUtils.clamp(prop.turn,-2.4,2.4);
+      const bodyDrive=f.groom?.pause?0:THREE.MathUtils.clamp(prop.speed,-.46,1.12);
+      turnRate=f.groom?.pause?0:THREE.MathUtils.clamp(prop.turn,-2.4,2.4);
       const motion=moveOnSurface(dt,bodyDrive,turnRate);
       const actualProgress=motion?.forwardSpeed??f.speed;
-      const eligible=!state.metabolism.feeding&&f.blocked<.28&&(Math.abs(desiredSpeed)>.055||Math.abs(desiredTurnRate)>.08);
+      const eligible=!state.metabolism.feeding&&!f.groom?.pause&&f.blocked<.28&&(Math.abs(desiredSpeed)>.055||Math.abs(desiredTurnRate)>.08);
       motorLearner.update(dt,{desiredSpeed,actualSpeed:actualProgress,desiredTurn:desiredTurnRate,actualTurn:turnRate,slip:prop.slip+Math.abs(f.speed-actualProgress)*.35,support:prop.support,cadence:state.gait.cadence,amplitude:state.gait.amplitude},{eligible,contextKey:f.surface+':'+Math.round(desiredSpeed*5)+':'+Math.round(desiredTurnRate*3)});
       state.lastAdaptiveMotion={desiredSpeed,desiredTurnRate,...prop,actualSpeed:actualProgress,actualTurn:turnRate};
     }else{
@@ -530,8 +557,8 @@ function simulate(dt){
     else {turnRate=f.landingSurface?0:1.25*sig.turn;desiredSpeed=sig.source==='malecns'?.42+.28*Math.max(0,sig.v):.48+.28*sig.approach;targetAlt=f.landingSurface?f.y:GROUND_Y;f.vy+=((f.landingSurface?0:-.62)-f.vy)*dt*2.4;f.pitch=THREE.MathUtils.lerp(f.pitch,.12,.09);f.roll=THREE.MathUtils.lerp(f.roll,-.20*sig.turn,.10);state.airTime+=dt;}
     f.heading+=turnRate*dt;f.speed+=(desiredSpeed-f.speed)*Math.min(1,dt*2.2);const prev={x:f.x,y:f.y,z:f.z};let next={x:f.x+Math.cos(f.heading)*f.speed*dt,y:f.y+f.vy*dt,z:f.z+Math.sin(f.heading)*f.speed*dt};
     let wallHit=null;if(next.x>SURFACE_BOUND)wallHit='wall-x+';else if(next.x<-SURFACE_BOUND)wallHit='wall-x-';else if(next.z>SURFACE_BOUND)wallHit='wall-z+';else if(next.z<-SURFACE_BOUND)wallHit='wall-z-';
-    if(wallHit){ if(f.mode==='landing'&&f.y>.35){const oldDir=new THREE.Vector3(Math.cos(f.heading),0,Math.sin(f.heading));attachWall(wallHit,oldDir);next={x:f.x,y:f.y,z:f.z};}else{next.x=THREE.MathUtils.clamp(next.x,-SURFACE_BOUND,SURFACE_BOUND);next.z=THREE.MathUtils.clamp(next.z,-SURFACE_BOUND,SURFACE_BOUND);f.heading+=Math.PI*.72+(random()-.5)*.25;f.blocked+=dt*2;} }
-    next.y=THREE.MathUtils.clamp(next.y,GROUND_Y,MAX_ALTITUDE);
+    if(wallHit){ if(f.mode==='landing'&&f.y>.35){next.x=THREE.MathUtils.clamp(next.x,-SURFACE_BOUND,SURFACE_BOUND);next.z=THREE.MathUtils.clamp(next.z,-SURFACE_BOUND,SURFACE_BOUND);}else{next.x=THREE.MathUtils.clamp(next.x,-SURFACE_BOUND,SURFACE_BOUND);next.z=THREE.MathUtils.clamp(next.z,-SURFACE_BOUND,SURFACE_BOUND);f.heading+=Math.PI*.72+(random()-.5)*.25;f.blocked+=dt*2;} }
+    next.y=THREE.MathUtils.clamp(next.y,f.landingSurface?.60:GROUND_Y,MAX_ALTITUDE);
     let collided=false,collidedFruit=null;
     if(f.mode!=='ground'){const r=resolveFruitCollisions(prev,next,state.fruits,{margin:FLY_RADIUS,groundMode:false});if(r.collided){next=r.point;collided=true;collidedFruit=r.contact;f.blocked+=dt*3.8;f.vy+=r.normal.y*.32;f.heading+=(random()-.5)*.35;}}
     if(collided&&!state.lastCollision){state.collisions++;state.motor.flightSkill=Math.max(.05,state.motor.flightSkill-.004);}state.lastCollision=collided;state.currentContact=collidedFruit;if(!collided)f.blocked=Math.max(0,f.blocked-dt*1.4);
@@ -569,7 +596,7 @@ function simulate(dt){
 }
 
 function addTrailPoint(){ if(trailCount>=trailMax){trailPositions.copyWithin(0,3);trailCount=trailMax-1;} const i=trailCount*3;trailPositions[i]=state.fly.x;trailPositions[i+1]=state.fly.y;trailPositions[i+2]=state.fly.z;trailCount++;trailGeo.attributes.position.needsUpdate=true;trailGeo.setDrawRange(0,trailCount); }
-function modeLabel(mode){ if(mode==='ground'&&state.fly.surface!=='floor')return 'Trepando'; return ({ground:'Tierra',takeoff:'Despegue',flight:'Vuelo',landing:'Aterrizaje'})[mode]||mode; }
+function modeLabel(mode){ if(state.fly.groom?.active)return 'Acicalamiento'; if(mode==='ground'&&state.fly.surface!=='floor')return 'Trepando'; return ({ground:'Tierra',takeoff:'Despegue',flight:'Vuelo',landing:'Aterrizaje'})[mode]||mode; }
 const TRACE_COLORS={AL:'#557f9b',MB:'#8b6cab',CX:'#728f54',SEZ:'#b8844d',DN:'#a86161',VNC:'#526f78'};
 function drawNeuralTrace(){
   if(!state.inspector||!neuralTraceCtx)return;
@@ -833,6 +860,7 @@ function resetCamera(){
 }
 ui.resetCameraBtn.addEventListener('click',resetCamera);
 ui.neuralInspectorBtn.addEventListener('click',()=>setNeuralInspector(!state.inspector));
+document.getElementById('groomBtn').addEventListener('click',()=>{updateGrooming(state.fly,0,{request:true,feeding:state.metabolism.feeding,support:state.fly.support?.feet||0});});
 ui.flyViewBtn.addEventListener('click',()=>setFlyView(!state.flyView));
 ui.ocularModeBtn.addEventListener('click',()=>setFlyVisionMode('ocular'));
 ui.compoundModeBtn.addEventListener('click',()=>setFlyVisionMode('compound'));
