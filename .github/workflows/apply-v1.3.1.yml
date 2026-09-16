@@ -1,0 +1,59 @@
+name: Apply FlyLab v1.3.1 payload
+
+on:
+  push:
+    branches:
+      - release-v1.3.1-grooming-fix
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release-v1.3.1-grooming-fix
+
+      - name: Verify and apply payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 -d .release_v131/payload.b64 > /tmp/flylab-v1.3.1.tar.gz
+          echo "7e51c9aaa24f52f22e9b00c4c559f069d8b72b66f2daffa1eea7bac230a6a872  /tmp/flylab-v1.3.1.tar.gz" | sha256sum -c -
+          gzip -t /tmp/flylab-v1.3.1.tar.gz
+          tar -tzf /tmp/flylab-v1.3.1.tar.gz
+          tar -xzf /tmp/flylab-v1.3.1.tar.gz
+          rm -rf .release_v131
+          rm -f .github/workflows/apply-v1.3.1.yml
+
+      - name: Verify syntax and local MaleCNS mirror
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check src/main.js
+          node --check src/models.js
+          node --check src/body.js
+          node --check src/corner.js
+          node --check src/grooming.js
+          node --check src/leg-ik.js
+          grep -Fq "const DEFAULT_BASE='../../data/malecns/';" src/malecns/worker.js
+          test -s data/malecns/graph.flyg
+          test -s data/malecns/neurons.flyn
+          test -s data/malecns/meta.json
+          test -s data/malecns/bodymap.json
+
+      - name: Test
+        run: npm test
+
+      - name: Commit validated v1.3.1 release
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: FlyLab v1.3.1 biomechanics and eye-safe grooming"
+          git push
