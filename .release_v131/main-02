@@ -1,0 +1,76 @@
+  const row=document.createElement('div'); row.className='ni-row'; row.innerHTML=`<b>${r.short}</b><div class="ni-meter"><i></i></div><strong>0%</strong>`; ui.niBars.appendChild(row);
+  niRows[r.key]={bar:row.querySelector('i'),value:row.querySelector('strong')};
+  niNodes[r.key]=document.querySelector(`.ni-node[data-ni-region="${r.key}"] circle`);
+}
+const neuralTraceCtx=ui.neuralTraceCanvas.getContext('2d');
+
+const maleCNS=new MaleCNSBridge({
+  pacing:new URLSearchParams(location.search).get('pacing')==='synchronized'?'synchronized':'interactive',
+  onStatus:({message})=>setMaleStatus('loading',message),
+  onReady:info=>{
+    const selected=isMaleMode();
+    setMaleStatus(selected?'live':'',selected?`${controlSelected()?'MaleCNS Control':'MaleCNS Observe'} · ${info.N.toLocaleString()} neuronas`:'Proxy · MaleCNS listo');
+    ui.malecnsCard.hidden=!selected;
+    ui.maleNetworkValue.textContent=`${info.N.toLocaleString()} N · ${(info.E/1e6).toFixed(2)} M E`;
+    if(selected){maleCNS.setMode(controlSelected()?'control':'observe');ui.activitySource.textContent=controlSelected()?'MaleCNS Control · spikes + DN':'MaleCNS Observe · spikes reales';document.querySelector('.workspace')?.classList.add('malecns-live');document.querySelector('.workspace')?.classList.toggle('malecns-control',controlSelected());maleCNS.setRunning(state.running);}else maleCNS.setRunning(false);
+  },
+  onActivity:s=>{
+    if(!isMaleMode())return;
+    ui.maleSpeedValue.textContent=`${s.neuralSpeed.toFixed(2)}× · ${maleCNS.pacing==='interactive'?'fluido':'sincronizado'} · muestra hace ${Math.max(0,state.t-(s.bodyTime||0)).toFixed(2)} s`;
+    ui.maleAwakeValue.textContent=(s.awake||0).toLocaleString();
+    ui.maleTopTypeValue.textContent=s.topTypes?.[0]?.type||'—';
+    const m=s.motor||{};ui.maleMotorModeValue.textContent=controlSelected()?(m.controlReady?`${m.intrinsicState||'activo'}${m.intrinsicReason?` · ${m.intrinsicReason}`:''} · DN`:'calibrando · control proxy'):'observación';ui.maleFwdValue.textContent=`${(m.fwdHz||0).toFixed(1)} Hz · Δ ${(m.fwdExcessHz||0).toFixed(1)} · v ${(m.v||0).toFixed(2)}`;ui.maleTurnValue.textContent=`Δ ${(m.turnHz||0).toFixed(1)} Hz · ${(m.turn||0).toFixed(2)}`;ui.maleTakeoffValue.textContent=`${(m.takeoffHz||0).toFixed(1)} Hz${m.takeoffTriggered?' · TRIGGER':''}`;ui.maleFeedValue.textContent=`${(m.feedHz||0).toFixed(1)} Hz`;ui.maleWallMotivationValue.textContent=`${Math.round((m.wallSearchMotivation||0)*100)}% · deuda ${(m.wallSearchDriveMs||0).toFixed(0)} ms`;ui.maleOdorTrendValue.textContent=`${(m.fruitOdor||0).toFixed(2)} · ${(m.fruitOdorTrend||0)>=0?'+':''}${(m.fruitOdorTrend||0).toFixed(3)}/s`;
+  },
+  onError:error=>{
+    setRunning(false);logEvent('neural-error',{message:error.message});
+    setMaleStatus('error','MaleCNS detenido: '+error.message);
+    ui.activitySource.textContent='proxy funcional · MaleCNS error';
+    console.error(error);
+  }
+});
+function setMaleStatus(kind,label){
+  ui.maleStatus.classList.remove('loading','live','error');if(kind)ui.maleStatus.classList.add(kind);
+  ui.maleStatus.querySelector('span').textContent=label;
+}
+function isMaleMode(){return ui.brainMode?.value==='malecns-observe'||ui.brainMode?.value==='malecns-control';}
+function controlSelected(){return ui.brainMode?.value==='malecns-control';}
+function usingMaleControl(){return controlSelected()&&maleCNS.ready&&!!maleCNS.latest;}
+function usingMaleCNS(){return isMaleMode()&&maleCNS.ready&&!!maleCNS.latest;}
+function adaptiveEnabled(){return usingMaleControl()&&!!ui.adaptiveToggle?.checked;}
+function maleMotor(){return usingMaleControl()?maleCNS.latest?.motor:null;}
+function displayedActivity(proxyVals){return usingMaleCNS()?maleCNS.latest.norm:proxyVals;}
+function displayedDominant(vals){let best='AL',bv=-Infinity;for(const r of CONNECTOME_REGIONS){const v=vals?.[r.key]||0;if(v>bv){bv=v;best=r.key;}}return best;}
+
+const compoundVisionCtx=ui.compoundVisionCanvas.getContext('2d',{alpha:false,desynchronized:true});
+const COMPOUND_RES={w:44,h:36};
+const COMPOUND_LAYOUT={eyeFov:155, yaw:0.62, eyeSeparation:0.054, cols:22, rows:18};
+const compoundLeftRT=new THREE.WebGLRenderTarget(COMPOUND_RES.w,COMPOUND_RES.h,{depthBuffer:true,stencilBuffer:false});
+const compoundRightRT=new THREE.WebGLRenderTarget(COMPOUND_RES.w,COMPOUND_RES.h,{depthBuffer:true,stencilBuffer:false});
+const compoundLeftPixels=new Uint8Array(COMPOUND_RES.w*COMPOUND_RES.h*4);
+const compoundRightPixels=new Uint8Array(COMPOUND_RES.w*COMPOUND_RES.h*4);
+const compoundLeftCamera=new THREE.PerspectiveCamera(COMPOUND_LAYOUT.eyeFov,COMPOUND_RES.w/COMPOUND_RES.h,.02,100);
+const compoundRightCamera=compoundLeftCamera.clone();
+let compoundVisionSize={w:960,h:540};
+let lastCompoundRenderAt=-1;
+const compoundTmp={
+  pos:new THREE.Vector3(), quat:new THREE.Quaternion(),
+  forward:new THREE.Vector3(), up:new THREE.Vector3(), right:new THREE.Vector3(),
+  leftPos:new THREE.Vector3(), rightPos:new THREE.Vector3(),
+  leftForward:new THREE.Vector3(), rightForward:new THREE.Vector3()
+};
+
+function addOdorVolume(fruit){
+  const group=new THREE.Group(); group.name='odor-volume';
+  for(const [s,o] of [[.42,.075],[.72,.045],[1.0,.026]]){
+    const shell=new THREE.Mesh(new THREE.SphereGeometry(fruit.sigma*s,20,14),new THREE.MeshBasicMaterial({color:0x6ee7ef,transparent:true,opacity:o,wireframe:true,depthWrite:false}));
+    shell.position.y=fruit.odorY; group.add(shell);
+  }
+  fruit.mesh.add(group); fruit.rings=group;
+}
+function addFruit(type,x,z){
+  if(state.fruits.length>=32){notice('Máximo de 32 frutas por ensayo.');return null;}
+  if(!FRUIT_LIBRARY[type])type='apple';const spec=FRUIT_LIBRARY[type];
+  const fruit={id:state.nextFruitId++,type,x:clampArena(x),z:clampArena(z),strength:spec.strength,reward:spec.reward,sigma:2.15,odorY:.36,amount:1,mesh:null,rings:null,removing:false,removeT:0};
+  if(!placementAllowed(fruit,state.fruits)){notice('Deja espacio entre frutas y respecto al vidrio.');return null;}
+  fruit.mesh=createFruitMesh(type); fruit.mesh.position.set(fruit.x,0,fruit.z); fruit.mesh.userData.fruit=fruit; addOdorVolume(fruit); scene.add(fruit.mesh); state.fruits.push(fruit); syncFruitVisual(fruit); selectFruit(fruit);logEvent('add-fruit',{fruit:{id:fruit.id,type:fruit.type,x:fruit.x,z:fruit.z,strength:fruit.strength,reward:fruit.reward,amount:fruit.amount}});refreshFruitList();return fruit;
+}
