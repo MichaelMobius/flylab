@@ -1,0 +1,54 @@
+    if(f.mode==='landing'&&next.y<=GROUND_Y+.015){next.y=GROUND_Y;f.surface='floor';setMode('ground');}if(f.mode!=='ground'&&next.y<=GROUND_Y&&f.vy<0){next.y=GROUND_Y;f.surface='floor';setMode('ground');}if(f.mode==='takeoff'&&next.y<GROUND_Y)next.y=GROUND_Y;
+    const d=Math.hypot(next.x-f.x,next.y-f.y,next.z-f.z);state.distance+=d;f.x=next.x;f.y=next.y;f.z=next.z;
+  }
+
+  if(f.mode!=='ground'){
+    updateTripodGait(state.gait,dt,{grounded:false,feeding:state.metabolism.feeding,speed:f.speed,desiredSpeed,turn:sig.turn});
+    motorLearner.update(dt,{desiredSpeed,actualSpeed:f.speed,desiredTurn:turnRate,actualTurn:turnRate,slip:0,support:0,cadence:state.gait.cadence,amplitude:state.gait.amplitude},{eligible:false,contextKey:f.mode==='ground'?'inactive':'air'});
+    state.lastAdaptiveMotion=null;
+  }
+
+  resolveBodyContact(dt);
+
+  // Surface contact detection and feeding.
+  const wasFeeding=state.metabolism.feeding;
+  let contact=state.currentContact,best=Infinity;
+  if(f.mode==='ground'&&f.surface==='floor'&&!contact){for(const fruit of state.fruits){const d=fruitSurfaceDistance({x:f.x,y:f.y,z:f.z},fruit,FLY_RADIUS+.025);if(d<.06&&d<best){best=d;contact=fruit;}}}
+  state.currentContact=contact;
+  if(contact&&state.t-state.lastContactAt>1.15){state.lastContactAt=state.t;state.contacts++;if(state.firstFruitTime===null)state.firstFruitTime=state.t;const at=state.sensedMixture;brain.learn(at,contact.reward);if(contact.reward>0)state.motor.flightSkill=Math.min(1,state.motor.flightSkill+.012*contact.reward);}
+  if(contact&&f.mode==='ground'&&f.surface==='floor')startFeeding(contact); else if(state.metabolism.feeding&&state.metabolism.fruit!==contact)stopFeeding();
+
+  if(wasFeeding!==state.metabolism.feeding)resolveBodyContact(0);
+  if(state.t-state.lastTrailAt>.055){addTrailPoint();state.lastTrailAt=state.t;}
+  const edibleContact=!!(contact&&contact.reward>0&&contact.amount>0);
+  const onWall=f.mode==='ground'&&f.surface!=='floor';
+  const wallFrame=onWall?surfaceFrame(f.surface,f.heading):null;
+  const wallHeight=onWall?THREE.MathUtils.clamp((f.y-GROUND_Y)/(MAX_ALTITUDE+.45-GROUND_Y),0,1):0;
+  const wallClimbRate=onWall?(f.speed*(wallFrame?.forward.y||0)):0;
+  if(isMaleMode())maleCNS.setInput({tick:state.ticks,t:state.t,left:L.mixture,right:R.mixture,feeding:state.metabolism.feeding,foodContact:edibleContact,mode:f.mode,surface:f.surface,speed:f.speed,energy:state.metabolism.energy,hunger:state.metabolism.hunger,blocked:f.blocked>.3&&!edibleContact,wallAge:onWall?f.modeTime:0,wallHeight,wallClimbRate,fruitOdor:odorTrace.filtered,fruitOdorTrend:odorTrace.trend});
+  const vals=activity.update(dt,{t:state.t,odorLeft:L.total,odorRight:R.total,kcActive:b.telemetry.kcActive,kcCount:brain.kcCount,memoryValue:b.telemetry.memoryValue,dopamine:b.telemetry.dopamine,turn:b.turn,speed:f.speed,mode:f.mode,surface:f.surface,feeding:state.metabolism.feeding,contact:!!contact,energy:state.metabolism.energy,hunger:state.metabolism.hunger});
+  if(state.ticks%10===0){session.samples.push({t:state.t,fly:{...f},energy:state.metabolism.energy,hunger:state.metabolism.hunger,sensors:{left:L.mixture,right:R.mixture},channels:{...vals},proxyActivity:{source:'proxy',units:'normalized-index',values:{...vals}},neuralActivity:usingMaleCNS()?{source:'LIF',units:'Hz',pacing:maleCNS.pacing,coalescedTicks:maleCNS.coalesced,sensorAgeSeconds:Math.max(0,state.t-(maleCNS.latest.bodyTime||0)),epoch:maleCNS.latest.epoch,tick:maleCNS.latest.tick,bodyTime:maleCNS.latest.bodyTime,neuralMs:maleCNS.latest.t,hz:{...maleCNS.latest.hz},normalized:{...maleCNS.latest.norm},populationSizes:{...maleCNS.latest.groupSizes}}:null,controllerApplied:sig.source,action:activity.action,brainMode:ui.brainMode.value,maleMotor:usingMaleCNS()?{...(maleCNS.latest.motor||{})}:null,gait:{phase:state.gait.phase,cadence:state.gait.cadence,amplitude:state.gait.amplitude,turn:state.gait.turn,pivot:state.gait.pivot},adaptiveMotor:motorLearner.status(),motivation:{fruitOdor:odorTrace.filtered,fruitOdorTrend:odorTrace.trend,wallSearchMotivation:maleCNS.latest?.motor?.wallSearchMotivation||0}});}
+  state.latest={telemetry:b.telemetry,left:L.total,right:R.total,vals};
+}
+
+function addTrailPoint(){ if(trailCount>=trailMax){trailPositions.copyWithin(0,3);trailCount=trailMax-1;} const i=trailCount*3;trailPositions[i]=state.fly.x;trailPositions[i+1]=state.fly.y;trailPositions[i+2]=state.fly.z;trailCount++;trailGeo.attributes.position.needsUpdate=true;trailGeo.setDrawRange(0,trailCount); }
+function modeLabel(mode){ if(state.fly.groom?.active)return 'Acicalamiento'; if(mode==='ground'&&state.fly.surface!=='floor')return 'Trepando'; return ({ground:'Tierra',takeoff:'Despegue',flight:'Vuelo',landing:'Aterrizaje'})[mode]||mode; }
+const TRACE_COLORS={AL:'#557f9b',MB:'#8b6cab',CX:'#728f54',SEZ:'#b8844d',DN:'#a86161',VNC:'#526f78'};
+function drawNeuralTrace(){
+  if(!state.inspector||!neuralTraceCtx)return;
+  const c=ui.neuralTraceCanvas,w=c.width,h=c.height,ctx=neuralTraceCtx;
+  ctx.clearRect(0,0,w,h); ctx.fillStyle='rgba(248,250,251,.96)'; ctx.fillRect(0,0,w,h);
+  ctx.strokeStyle='rgba(80,96,110,.10)'; ctx.lineWidth=1;
+  for(let i=1;i<4;i++){const y=(h-18)*i/4+12;ctx.beginPath();ctx.moveTo(8,y);ctx.lineTo(w-8,y);ctx.stroke();}
+  const male=usingMaleCNS(); const hist=(male?maleCNS.history:activity.history).slice(-150); if(hist.length<2)return;
+  const plotTop=18,plotBottom=h-8,plotH=plotBottom-plotTop;
+  CONNECTOME_REGIONS.forEach((r,ri)=>{
+    ctx.strokeStyle=TRACE_COLORS[r.key]||'#667';ctx.lineWidth=ri<2?1.8:1.25;ctx.beginPath();
+    hist.forEach((s,i)=>{const x=8+i/(hist.length-1)*(w-16),vv=male?(s.norm?.[r.key]||0):(s[r.key]||0),y=plotBottom-vv*plotH;if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);});ctx.stroke();
+  });
+  ctx.font='8px system-ui'; let x=8;
+  CONNECTOME_REGIONS.forEach(r=>{ctx.fillStyle=TRACE_COLORS[r.key]||'#667';ctx.fillText(r.key,x,10);x+=26;});
+}
+function updateInspectorUI(vals){
+  if(!state.inspector)return;
+  ui.niAction.textContent=activity.action;ui.niDominant.textContent=displayedDominant(vals);ui.niMode.textContent=modeLabel(state.fly.mode).toUpperCase();ui.niSurface.textContent=SURFACES[state.fly.surface]?.label||'aire';
