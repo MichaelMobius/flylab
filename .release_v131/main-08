@@ -1,0 +1,106 @@
+  for(const r of CONNECTOME_REGIONS){const v=vals[r.key]||0,p=Math.round(v*100);niRows[r.key].bar.style.width=`${p}%`;niRows[r.key].value.textContent=`${p}%`;const node=niNodes[r.key];if(node){node.style.fill=`rgba(${165+Math.round(70*v)},${178+Math.round(35*v)},${185-Math.round(55*v)},${.42+.58*v})`;node.style.filter=`drop-shadow(0 0 ${2+8*v}px rgba(183,137,54,${.12+.5*v}))`;node.style.transform=`scale(${1+.10*v})`;}}
+  drawNeuralTrace();
+}
+
+function resizeCompoundVisionCanvas(){
+  const wrap=ui.viewport.parentElement;
+  if(!wrap) return;
+  const dpr=Math.min(window.devicePixelRatio||1,1.5);
+  compoundVisionSize={w:Math.max(480,Math.round(wrap.clientWidth*dpr)),h:Math.max(270,Math.round(wrap.clientHeight*dpr))};
+  ui.compoundVisionCanvas.width=compoundVisionSize.w; ui.compoundVisionCanvas.height=compoundVisionSize.h;
+}
+function getFlyEyePose(){
+  flyPovAnchor.updateWorldMatrix(true,false);
+  flyPovAnchor.getWorldPosition(compoundTmp.pos); flyPovAnchor.getWorldQuaternion(compoundTmp.quat);
+  compoundTmp.forward.set(0,0,1).applyQuaternion(compoundTmp.quat).normalize();
+  compoundTmp.up.set(0,1,0).applyQuaternion(compoundTmp.quat).normalize();
+  compoundTmp.right.set(1,0,0).applyQuaternion(compoundTmp.quat).normalize();
+  return compoundTmp;
+}
+function updateFlyVisionButtons(){
+  const ocular=state.flyVisionMode==='ocular';
+  ui.ocularModeBtn.classList.toggle('active',ocular); ui.ocularModeBtn.setAttribute('aria-pressed',String(ocular));
+  ui.compoundModeBtn.classList.toggle('active',!ocular); ui.compoundModeBtn.setAttribute('aria-pressed',String(!ocular));
+  if(state.flyVisionMode==='compound'){
+    ui.flyPovCaption.textContent='Ojos compuestos simplificados · dos campos visuales · baja resolución omatidial';
+  }else{
+    ui.flyPovCaption.textContent='POV ocular · desde la cabeza, orientado al avance o retroceso';
+  }
+  ui.compoundVisionCanvas.hidden=!(state.flyView&&state.flyVisionMode==='compound');
+  document.querySelector('.viewport-wrap').classList.toggle('compound-active',state.flyView&&state.flyVisionMode==='compound');
+}
+function setFlyVisionMode(mode){
+  state.flyVisionMode=(mode==='ocular'?'ocular':'compound');
+  lastCompoundRenderAt=-1;
+  updateFlyVisionButtons();
+  if(state.flyView){
+    camera.near=state.flyVisionMode==='compound'?.02:.03;
+    camera.updateProjectionMatrix();
+  }
+}
+function configureEyeCamera(cam,pos,up,forward){
+  cam.position.copy(pos); cam.up.copy(up); cam.lookAt(pos.clone().addScaledVector(forward,3)); cam.updateMatrixWorld();
+}
+function sampleCompound(buf,u,v){
+  const x=Math.max(0,Math.min(COMPOUND_RES.w-1,Math.round(u*(COMPOUND_RES.w-1))));
+  const y=Math.max(0,Math.min(COMPOUND_RES.h-1,Math.round((1-v)*(COMPOUND_RES.h-1))));
+  const i=(y*COMPOUND_RES.w+x)*4; return [buf[i],buf[i+1],buf[i+2]];
+}
+function hexPath(ctx,cx,cy,r){
+  ctx.beginPath();
+  for(let k=0;k<6;k++){
+    const a=Math.PI/6 + k*Math.PI/3, x=cx+Math.cos(a)*r, y=cy+Math.sin(a)*r;
+    if(k===0)ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  }
+  ctx.closePath();
+}
+function drawCompoundEye(ctx,buf,cx,cy,rx,ry){
+  const cols=COMPOUND_LAYOUT.cols, rows=COMPOUND_LAYOUT.rows;
+  const stepX=(rx*2)/(cols+.5), stepY=(ry*2)/(rows+1), r=Math.min(stepX,stepY)*.56;
+  for(let row=0;row<rows;row++){
+    for(let col=0;col<cols;col++){
+      const x=cx-rx + stepX*(col+.6) + (row%2)*stepX*.5;
+      const y=cy-ry + stepY*(row+1);
+      const dx=(x-cx)/rx, dy=(y-cy)/ry;
+      if(dx*dx+dy*dy>1) continue;
+      const u=(dx+1)*.5, v=(dy+1)*.5;
+      const [R,G,B]=sampleCompound(buf,u,v);
+      ctx.fillStyle=`rgb(${R},${G},${B})`;
+      ctx.strokeStyle='rgba(10,14,16,.28)'; ctx.lineWidth=Math.max(1,r*.11);
+      hexPath(ctx,x,y,r); ctx.fill(); ctx.stroke();
+    }
+  }
+}
+function renderCompoundVision(now){
+  if(now-lastCompoundRenderAt<50 && !ui.compoundVisionCanvas.hidden) return;
+  lastCompoundRenderAt=now;
+  const pose=getFlyEyePose(), yaw=COMPOUND_LAYOUT.yaw, sep=COMPOUND_LAYOUT.eyeSeparation;
+  compoundTmp.leftPos.copy(pose.pos).addScaledVector(pose.right,-sep);
+  compoundTmp.rightPos.copy(pose.pos).addScaledVector(pose.right,sep);
+  compoundTmp.leftForward.copy(pose.forward).applyAxisAngle(pose.up,yaw).normalize();
+  compoundTmp.rightForward.copy(pose.forward).applyAxisAngle(pose.up,-yaw).normalize();
+  configureEyeCamera(compoundLeftCamera,compoundTmp.leftPos,pose.up,compoundTmp.leftForward);
+  configureEyeCamera(compoundRightCamera,compoundTmp.rightPos,pose.up,compoundTmp.rightForward);
+  const visible=flyMesh.visible; flyMesh.visible=false;
+  renderer.setRenderTarget(compoundLeftRT); renderer.clear(); renderer.render(scene,compoundLeftCamera); renderer.readRenderTargetPixels(compoundLeftRT,0,0,COMPOUND_RES.w,COMPOUND_RES.h,compoundLeftPixels);
+  renderer.setRenderTarget(compoundRightRT); renderer.clear(); renderer.render(scene,compoundRightCamera); renderer.readRenderTargetPixels(compoundRightRT,0,0,COMPOUND_RES.w,COMPOUND_RES.h,compoundRightPixels);
+  renderer.setRenderTarget(null); flyMesh.visible=visible;
+  const ctx=compoundVisionCtx, W=ui.compoundVisionCanvas.width, H=ui.compoundVisionCanvas.height;
+  ctx.clearRect(0,0,W,H);
+  const bg=ctx.createRadialGradient(W*.5,H*.45,Math.min(W,H)*.06,W*.5,H*.5,Math.max(W,H)*.72);
+  bg.addColorStop(0,'rgb(25,34,40)'); bg.addColorStop(.65,'rgb(7,10,12)'); bg.addColorStop(1,'rgb(2,3,4)');
+  ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+  const rx=W*.235, ry=H*.33, leftCx=W*.39, rightCx=W*.61, cy=H*.5;
+  ctx.save();
+  ctx.fillStyle='rgba(240,248,252,.015)'; ctx.beginPath(); ctx.ellipse(leftCx,cy,rx*1.02,ry*1.02,0,0,Math.PI*2); ctx.fill(); ctx.beginPath(); ctx.ellipse(rightCx,cy,rx*1.02,ry*1.02,0,0,Math.PI*2); ctx.fill();
+  drawCompoundEye(ctx,compoundLeftPixels,leftCx,cy,rx,ry);
+  drawCompoundEye(ctx,compoundRightPixels,rightCx,cy,rx,ry);
+  ctx.globalCompositeOperation='destination-in';
+  ctx.beginPath(); ctx.ellipse(leftCx,cy,rx*1.03,ry*1.03,0,0,Math.PI*2); ctx.ellipse(rightCx,cy,rx*1.03,ry*1.03,0,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+  ctx.strokeStyle='rgba(255,255,255,.06)'; ctx.lineWidth=Math.max(2,W*.0022);
+  ctx.beginPath(); ctx.ellipse(leftCx,cy,rx*1.02,ry*1.02,0,0,Math.PI*2); ctx.stroke(); ctx.beginPath(); ctx.ellipse(rightCx,cy,rx*1.02,ry*1.02,0,0,Math.PI*2); ctx.stroke();
+  ctx.fillStyle='rgba(255,255,255,.08)'; ctx.fillRect(W*.495,H*.14,W*.01,H*.72);
+  ctx.fillStyle='rgba(255,255,255,.52)'; ctx.font=`${Math.round(Math.max(12,W*.012))}px system-ui`; ctx.textAlign='center';
+  ctx.fillText('VISIÓN COMPUESTA APROXIMADA',W*.5,H*.93);
+}
