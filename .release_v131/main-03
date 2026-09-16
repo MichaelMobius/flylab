@@ -1,0 +1,54 @@
+function deleteFruit(fruit){ if(!fruit)return;logEvent('delete-fruit',{id:fruit.id}); if(state.metabolism.fruit===fruit)stopFeeding(); scene.remove(fruit.mesh); fruit.mesh.traverse(o=>{o.geometry?.dispose?.(); if(o.material){if(Array.isArray(o.material))o.material.forEach(m=>m.dispose?.());else o.material.dispose?.();}}); state.fruits=state.fruits.filter(f=>f!==fruit); if(state.selected===fruit)selectFruit(null);refreshFruitList(); }
+function clampArena(v){ return Math.max(-HALF+.45,Math.min(HALF-.45,v)); }
+function syncFruitVisual(fruit){ const sel=1; const amount=Math.max(0,Math.min(1,fruit.amount)); const eaten=.20+.80*Math.sqrt(amount); const pulse=1; fruit.mesh.userData.visual.scale.setScalar(sel*eaten*pulse); fruit.rings.scale.setScalar(.55+.45*Math.max(.02,amount)); fruit.rings.visible=ui.odorFieldToggle.checked&&amount>0; const ring=fruit.mesh.userData.consumeRing; if(ring){ ring.material.opacity=amount<.45?(1-amount)*.32:0; ring.scale.setScalar(.7+.4*(1-amount)); } const shadow=fruit.mesh.userData.shadowDisk; if(shadow){ shadow.scale.setScalar(.72+.38*eaten); shadow.material.opacity=.06+.08*amount; } const mats=fruit.mesh.userData.materials||[]; for(const m of mats){ if('opacity' in m){ m.transparent=false; m.opacity=1; } if('emissive' in m){ m.emissiveIntensity=amount<.18?.22:0; }} }
+function selectFruit(fruit){ const old=state.selected; state.selected=fruit; if(old)syncFruitVisual(old); if(fruit)syncFruitVisual(fruit); ui.selectedFruitName.textContent=fruit?`${FRUIT_LIBRARY[fruit.type].label} #${fruit.id}`:'ninguna'; ui.noSelection.hidden=!!fruit; ui.selectionControls.hidden=!fruit; if(fruit)syncFruitControls();refreshFruitList(); }
+function syncFruitControls(){ const f=state.selected;if(!f)return; ui.odorStrength.value=f.strength;ui.odorStrengthOut.value=f.strength.toFixed(2);ui.fruitReward.value=f.reward;ui.rewardOut.value=(f.reward>=0?'+':'')+f.reward.toFixed(2);ui.fruitX.value=f.x.toFixed(2);ui.fruitZ.value=f.z.toFixed(2);ui.foodAmount.value=f.amount;ui.foodAmountOut.value=`${Math.round(f.amount*100)}%`; }
+function moveSelected(x,z){const f=state.selected;if(!f)return;const candidate={...f,x:clampArena(x),z:clampArena(z)};if(!placementAllowed(candidate,state.fruits)){notice('Esa posición solapa otra fruta o el vidrio.');syncFruitControls();return;}f.x=candidate.x;f.z=candidate.z;f.mesh.position.set(f.x,0,f.z);syncFruitControls();logEvent('move-fruit',{id:f.id,x:f.x,z:f.z});}
+
+function surfaceFrame(surface,heading){
+  const s=SURFACES[surface]||SURFACES.floor; const forward=s.a.clone().multiplyScalar(Math.cos(heading)).addScaledVector(s.b,Math.sin(heading)).normalize();
+  const right=s.normal.clone().cross(forward).normalize(); return {normal:s.normal,forward,right,a:s.a,b:s.b};
+}
+function headingFromWorld(surface,dir){ const s=SURFACES[surface]||SURFACES.floor; return Math.atan2(dir.dot(s.b),dir.dot(s.a)); }
+function attachWall(name,oldDir){
+  const f=state.fly,wasLanding=f.mode==='landing',landingHeading=f.landingHeading;if(wasLanding)f.wingFold=0; f.legAnchors=null;f.legSteps=null;f.lastGroundPose=null;f.surface=name; f.mode='ground'; f.modeTime=0; f.vy=0; f.wallStall=0;f.landingSurface=null;f.blocked=0;state.gait.grounded=true;
+  if(wasLanding){state.motor.safeLandings++;logEvent('wall-landing',{surface:name,source:'body-policy'});}
+  const s=SURFACES[name]; const side=THREE.MathUtils.clamp(oldDir.dot(s.a),-.65,.65); const dir=s.a.clone().multiplyScalar(side).addScaledVector(s.b,.82).normalize(); f.heading=wasLanding&&Number.isFinite(landingHeading)?landingHeading:headingFromWorld(name,dir);
+  if(name==='wall-x+')f.x=SURFACE_BOUND;if(name==='wall-x-')f.x=-SURFACE_BOUND;if(name==='wall-z+')f.z=SURFACE_BOUND;if(name==='wall-z-')f.z=-SURFACE_BOUND; f.y=Math.max(.55,f.y);
+  stopFeeding(); updateFlightButton();
+}
+function transferWall(next){
+  const f=state.fly,from=f.surface;
+  if(!from.startsWith('wall-')||!next.startsWith('wall-')||from[5]===next[5])return;
+  const oldFrame=surfaceFrame(from,f.heading),normal=SURFACES[next].normal;
+  const rotation=new THREE.Quaternion().setFromUnitVectors(oldFrame.normal,normal);
+  const direction=oldFrame.forward.clone().applyQuaternion(rotation);
+  const clearance=HALF-.0175-Math.abs(f[from[5]]);
+  f.surface=next;f.heading=headingFromWorld(next,direction);
+  f[next[5]]=(next.endsWith('+')?1:-1)*(HALF-.0175-clearance);
+  f.wallStall=0;f.blocked=0;
+  logEvent('wall-transfer',{from,to:next,source:'body-contact',turnDegrees:oldFrame.normal.clone().cross(normal).y*90});
+}
+function returnToFloor(){
+  const f=state.fly; const horiz=SURFACES[f.surface].normal.clone();
+  f.x+=horiz.x*.55;f.z+=horiz.z*.55;f.wallStall=0;f.speed=Math.max(.2,Math.abs(f.speed));
+  f.surface='floor'; f.y=GROUND_Y; f.heading=Math.atan2(horiz.z,horiz.x); f.mode='ground'; f.modeTime=0; updateFlightButton();
+}
+function setMode(mode){
+  if(state.fly.mode===mode)return; const f=state.fly, previous=f.mode, prevSurface=f.surface;
+  if(mode==='takeoff'&&previous==='ground'){
+    if(prevSurface!=='floor'){ const n=SURFACES[prevSurface].normal; f.x+=n.x*.24;f.y+=n.y*.24;f.z+=n.z*.24; const h=new THREE.Vector3(n.x,0,n.z); if(h.lengthSq()>.01)f.heading=Math.atan2(h.z,h.x); f.speed=Math.max(f.speed,.42); }
+    f.surface='air'; stopFeeding();
+  }
+  f.legAnchors=null;f.legSteps=null;f.lastGroundPose=null;f.corner=null; f.mode=mode; f.modeTime=0;if(mode!=='landing')f.landingSurface=null;
+  if(mode==='ground'){
+    if(f.surface==='air')f.surface='floor'; if(f.surface==='floor')f.y=GROUND_Y; f.vy=0;
+    if(previous==='landing'){ state.motor.safeLandings++; state.motor.flightSkill=Math.min(1,state.motor.flightSkill+.012); }
+  }
+  updateFlightButton();
+}
+function updateFlightButton(){ const takeoff=state.fly.mode==='ground'; ui.flightBtn.innerHTML=`<span class="tool-ico">${takeoff?'🪽':'🛬'}</span>`; ui.flightBtn.title=takeoff?'Forzar despegue':'Forzar aterrizaje'; ui.flightBtn.setAttribute('aria-label', ui.flightBtn.title); }
+function resetFly(){
+ state.fly.groom=null;state.fly.legAnchors=null;state.fly.legSteps=null;state.fly.lastGroundPose=null;state.fly.corner=null;state.fly.bodyQuaternion=null;state.fly.bodyFloorHeight=0;state.fly.bodyContact=null;
+ random=seededRandom(seed);resetExperimentState(state);brain.clearMemory();stepper.clear();resetTripodGait(state.gait);
+ Object.assign(state.fly,{x:-3.6,y:GROUND_Y,z:2.8,heading:-.7,speed:0,vy:0,mode:'ground',surface:'floor',modeTime:0,blocked:0,landingSurface:null,roll:0,pitch:0,command:null});
