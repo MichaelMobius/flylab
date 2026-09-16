@@ -1,0 +1,93 @@
+function stopFeeding(){state.metabolism.feeding=false;state.metabolism.fruit=null;state.metabolism.feedTime=0;state.metabolism.visualLift=0;}
+function updateFruitOdorTrace(value,dt){
+  const tr=state.odorTrace;
+  if(!tr.ready){tr.raw=tr.filtered=value;tr.trend=0;tr.ready=true;return tr;}
+  const rawTrend=(value-tr.raw)/Math.max(1e-4,dt);tr.raw=value;
+  const a=1-Math.exp(-dt/.65);tr.filtered+=a*(value-tr.filtered);tr.trend+=a*(rawTrend-tr.trend);
+  if(Math.abs(tr.trend)<1e-5)tr.trend=0;
+  return tr;
+}
+function removeFruitIfEmpty(fruit){
+  if(!fruit||fruit.amount>0)return false;
+  if(state.selected===fruit) selectFruit(null);
+  if(state.metabolism.fruit===fruit) stopFeeding();
+  deleteFruit(fruit);
+  return true;
+}
+function updateMetabolism(dt){
+  const m=state.metabolism,f=state.fly; const cost=f.mode==='flight'?.0105:(f.mode==='takeoff'?.012:(f.surface!=='floor'?.0052:.0032)); m.energy=Math.max(.08,m.energy-cost*dt); m.hunger=1-m.energy;
+  if(!m.feeding||!m.fruit) return;
+  const fruit=m.fruit, near=fruitSurfaceDistance({x:f.x,y:f.y,z:f.z},fruit,FLY_RADIUS+.035)<.13;
+  if(!near||fruit.reward<=0||fruit.amount<=0||m.energy>=.995||f.mode!=='ground'||f.surface!=='floor'){stopFeeding();return;}
+  m.feedTime+=dt; m.visualLift=Math.min(.24,m.feedTime*.18);
+  const bite=Math.min(fruit.amount,dt*(.026+.056*m.hunger));
+  if(bite<=0){stopFeeding(); return;}
+  fruit.amount=Math.max(0,fruit.amount-bite);
+  const nutritive=bite*(.78+.38*Math.max(0,fruit.reward)); m.intake+=nutritive; m.energy=Math.min(1,m.energy+nutritive*1.9); m.hunger=1-m.energy; state.reward+=bite*fruit.reward;
+  if(state.t-m.lastLearnAt>.85){brain.learn(state.sensedMixture,fruit.reward);m.lastLearnAt=state.t;}
+  if(removeFruitIfEmpty(fruit)) return;
+  syncFruitVisual(fruit); if(state.selected===fruit)syncFruitControls();
+}
+function neuralMotorReady(){const m=maleMotor();return !!(m&&m.controlReady);}
+function locomotorSignals(b){
+  const m=neuralMotorReady()?maleMotor():null;
+  if(!m)return {source:'proxy',turn:b.turn,approach:b.approach,v:null,motor:null};
+  return {source:'malecns',turn:THREE.MathUtils.clamp(m.turn||0,-.6,.6),approach:THREE.MathUtils.clamp(Math.max(0,m.v||0),0,1),v:THREE.MathUtils.clamp(m.v||0,-.35,1),motor:m};
+}
+function autonomousModeDecision(odorMean,b,dt){
+  const f=state.fly;const commanded=consumeFlightCommand(f);if(commanded){setMode(commanded);return;}if(state.metabolism.feeding||f.groom?.pause)return;
+  // Body-time recovery remains responsive when neural time lags in fluid pacing.
+  if(f.mode==='ground'&&f.surface!=='floor'&&(f.wallStall||0)>4){
+    const surface=f.surface;const reason='wall-stall';
+    if(f.y<.65)returnToFloor();else{setMode('takeoff');f.vy=.65;}
+    logEvent('body-wall-recovery',{source:'body-assist',surface,reason,action:f.mode==='ground'?'floor':'takeoff'});return;
+  }
+  const m=neuralMotorReady()?maleMotor():null;
+  if(m){
+    if(f.mode==='ground'&&m.takeoffTriggered&&maleCNS.consumeTakeoff()){setMode('takeoff');f.vy=.45+.35*state.motor.flightSkill;logEvent('malecns-takeoff',{hz:m.takeoffHz,baseline:m.takeoffBaselineHz});return;}
+    // v1.0 has no single validated landing-DN readout. Landing remains an explicit body policy,
+    // while yaw/forward flight modulation comes from the descending-neuron readout.
+    if(f.mode==='flight'){
+      const wantLand=(f.modeTime>3&&odorMean>.34&&b.approach>.35&&f.y<1.0)||(f.modeTime>16&&odorMean<.07&&random()<.06*dt);
+      if(wantLand)setMode('landing');
+    }
+    return;
+  }
+  if(f.mode==='ground'){
+    const wall=f.surface!=='floor'; const shouldTakeoff = f.blocked>.52 || (f.modeTime>(wall?7:4.5) && odorMean<.10 && random()<.09*dt) || (f.modeTime>10 && random()<.14*dt);
+    if(shouldTakeoff){ setMode('takeoff'); f.vy=.45+.35*state.motor.flightSkill; }
+  } else if(f.mode==='flight'){
+    const wantLand = (f.modeTime>2.5 && odorMean>.32 && b.approach>.38 && f.y<1.05) || (f.modeTime>13 && odorMean<.08 && random()<.09*dt);
+    if(wantLand){ setMode('landing'); }
+  }
+}
+
+function moveOnSurface(dt,desiredSpeed,turnRate){
+  const f=state.fly; if(f.groom?.pause){f.speed=f.groom.active?0:f.speed*Math.exp(-dt*8);f.wallStall=0;return {distance:0,forwardSpeed:0};} if(f.corner){state.wallTime+=dt;return {distance:0,forwardSpeed:0};} f.heading+=turnRate*dt; f.speed+=(desiredSpeed-f.speed)*Math.min(1,dt*3.2); const fr=surfaceFrame(f.surface,f.heading); const prev={x:f.x,y:f.y,z:f.z};
+  let next={x:f.x+fr.forward.x*f.speed*dt,y:f.y+fr.forward.y*f.speed*dt,z:f.z+fr.forward.z*f.speed*dt};
+  if(f.surface==='floor'){
+    let wall=null;
+    if(next.x>SURFACE_BOUND)wall='wall-x+';else if(next.x<-SURFACE_BOUND)wall='wall-x-';else if(next.z>SURFACE_BOUND)wall='wall-z+';else if(next.z<-SURFACE_BOUND)wall='wall-z-';
+    if(wall){ attachWall(wall,fr.forward); next={x:f.x,y:f.y,z:f.z}; }
+    else {
+      let collided=false,collidedFruit=null;
+      const r=resolveFruitCollisions(prev,next,state.fruits,{margin:FLY_RADIUS,groundMode:true});if(r.collided){next=r.point;collided=true;collidedFruit=r.contact;f.blocked+=dt*3.8;}
+      if(collided&&!state.lastCollision){state.collisions++;} state.lastCollision=collided;if(!collided)f.blocked=Math.max(0,f.blocked-dt*1.4);state.currentContact=collidedFruit;
+    }
+  } else {
+    state.wallTime+=dt; state.lastCollision=false; state.currentContact=null;
+    const wall=f.surface;
+    if(next.y<=Math.max(GROUND_Y+.06,(f.bodyFloorHeight||0)+.015) && next.y<prev.y){ returnToFloor(); next={x:f.x,y:f.y,z:f.z}; }
+    else {
+      next.y=THREE.MathUtils.clamp(next.y,GROUND_Y+.02,MAX_ALTITUDE+.48);
+      if(next.y>=MAX_ALTITUDE+.45&&fr.forward.y>0){f.heading=-Math.abs(f.heading)-.08;}
+      if(wall.startsWith('wall-x')){ if(Math.abs(next.z)>SURFACE_BOUND){next.z=THREE.MathUtils.clamp(next.z,-SURFACE_BOUND,SURFACE_BOUND);// Adjacent-wall contact is resolved by transferWall after the step.
+} next.x=wall==='wall-x+'?Math.min(f.x,SURFACE_BOUND):Math.max(f.x,-SURFACE_BOUND); }
+      else { if(Math.abs(next.x)>SURFACE_BOUND){next.x=THREE.MathUtils.clamp(next.x,-SURFACE_BOUND,SURFACE_BOUND);// Adjacent-wall contact is resolved by transferWall after the step.
+} next.z=wall==='wall-z+'?Math.min(f.z,SURFACE_BOUND):Math.max(f.z,-SURFACE_BOUND); }
+    }
+  }
+  const delta=new THREE.Vector3(next.x-f.x,next.y-f.y,next.z-f.z);
+  const d=delta.length(); const forwardSpeed=dt>0?delta.dot(fr.forward)/dt:0;
+  if(f.surface!=='floor')f.wallStall=d<dt*.025?(f.wallStall||0)+dt:0;else f.wallStall=0;
+  state.distance+=d;f.x=next.x;f.y=next.y;f.z=next.z;
