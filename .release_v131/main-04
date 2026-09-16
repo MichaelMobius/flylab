@@ -1,0 +1,99 @@
+ Object.assign(state.odorTrace,{raw:0,filtered:0,trend:0,ready:false});
+ // Reset the assay to the current fruit arrangement, replenishing its food.
+ for(const fruit of state.fruits){fruit.amount=1;syncFruitVisual(fruit);}
+ activity.clear();maleCNS.reset();session.events=[];session.samples=[];session.initial=scenario();session.initialMotorLearning=motorLearner.export();session.initialBrainMode=ui.brainMode.value;session.initialNeuralPacing=maleCNS.pacing;session.neuralSource=maleCNS.info?.source||null;trailCount=0;trailGeo.setDrawRange(0,0);updateFlightButton();resolveBodyContact(0);updateFlyMesh(0);
+ updateTelemetry(brain.last,0,0,activity.values);if(state.selected)syncFruitControls();
+}
+
+function orientSegment(mesh,a,b){
+  const dir=b.clone().sub(a); const len=Math.max(1e-4,dir.length());
+  mesh.position.copy(a).addScaledVector(dir,.5);
+  mesh.scale.set(1,len/mesh.geometry.parameters.height,1);
+  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),dir.normalize());
+}
+function animateLegs(){animateFlyLegs(flyMesh,state.gait,state.fly,state.metabolism.feeding);}
+
+function updateFlyMesh(t){
+  const f=state.fly;const frame=f.mode==='ground'?surfaceFrame(f.surface,f.heading):surfaceFrame('floor',f.heading);
+  poseFly(flyMesh,f,state.gait,state.metabolism.feeding,t,frame);
+}
+function prepareLanding(){
+ const f=state.fly;if(f.mode==='ground'||f.mode==='takeoff')return;
+ if(f.landingSurface){
+  const wall=f.landingSurface,normal=SURFACES[wall].normal,gap=HALF-.0175-(wall.endsWith('+')?f[wall[5]]:-f[wall[5]]);
+  if(gap<1.2&&f.y>=.55){f.heading=Math.atan2(-normal.z,-normal.x);return;}
+  f.landingSurface=null;f.landingHeading=null;
+ }
+ const eligible=f.mode==='landing'||(f.mode==='flight'&&f.modeTime>2&&(state.metabolism.energy<.75||f.modeTime>8));
+ if(!eligible||f.y<.55||f.y>MAX_ALTITUDE)return;
+ const direction=new THREE.Vector3(Math.cos(f.heading),0,Math.sin(f.heading));
+ for(const name of ['wall-x+','wall-x-','wall-z+','wall-z-']){
+  const normal=SURFACES[name].normal,axis=name[5],gap=HALF-.0175-(name.endsWith('+')?f[axis]:-f[axis]);
+  if(gap>.85||direction.dot(normal)>-.25)continue;
+  if(f.mode!=='landing')setMode('landing');
+  if(f.landingSurface!==name){
+   f.landingSurface=name;const s=SURFACES[name],side=THREE.MathUtils.clamp(direction.dot(s.a),-.65,.65);
+   f.landingHeading=headingFromWorld(name,s.a.clone().multiplyScalar(side).addScaledVector(s.b,.82).normalize());
+   logEvent('wall-approach',{surface:name,source:'body-policy'});
+  }
+  f.heading=Math.atan2(-normal.z,-normal.x);break;
+ }
+}
+function resolveBodyContact(dt){
+  prepareLanding();
+  const f=state.fly,frame=f.mode==='ground'?surfaceFrame(f.surface,f.heading):f.landingSurface?surfaceFrame(f.landingSurface,f.landingHeading):surfaceFrame('floor',f.heading);
+  const contact=bodyCollider.resolve(f,state.gait,{frame,dt,t:state.t,feeding:state.metabolism.feeding,half:HALF});
+  if(f.corner)return;
+  const movement=f.mode==='ground'?frame.forward:new THREE.Vector3(Math.cos(f.heading),0,Math.sin(f.heading));
+  const towardX=contact.x*movement.x*f.speed<0,towardZ=contact.z*movement.z*f.speed<0;
+  if(f.mode==='ground'&&f.surface==='floor'&&(towardX||towardZ)){
+    const wall=towardX?(contact.x<0?'wall-x+':'wall-x-'):(contact.z<0?'wall-z+':'wall-z-');
+    attachWall(wall,frame.forward.clone().multiplyScalar(Math.sign(f.speed)||1));
+    bodyCollider.resolve(f,state.gait,{frame:surfaceFrame(f.surface,f.heading),dt:0,t:state.t,half:HALF});
+  }else if(f.mode==='ground'&&f.surface.startsWith('wall-')){
+    const acrossX=f.surface.startsWith('wall-z')&&towardX&&Math.abs(frame.forward.x*f.speed)>.04;
+    const acrossZ=f.surface.startsWith('wall-x')&&towardZ&&Math.abs(frame.forward.z*f.speed)>.04;
+    if(acrossX||acrossZ){
+      const next=acrossX?(contact.x<0?'wall-x+':'wall-x-'):(contact.z<0?'wall-z+':'wall-z-');
+      const from=f.surface,start=captureCornerPose(bodyCollider.root,f);
+      transferWall(next);
+      bodyCollider.resolve(f,state.gait,{frame:surfaceFrame(f.surface,f.heading),dt:0,t:state.t,half:HALF});
+      if(f.mode==='ground'){const end=captureCornerPose(bodyCollider.root,f);startCorner(f,from,next,start,end);bodyCollider.resolve(f,state.gait,{frame:surfaceFrame(f.surface,f.heading),dt:0,t:state.t,half:HALF});}
+    }
+  }else if(f.mode!=='ground'&&contact.floor>0&&f.vy<0){
+    f.surface='floor';setMode('ground');
+    bodyCollider.resolve(f,state.gait,{frame:surfaceFrame('floor',f.heading),dt:0,t:state.t,half:HALF});
+  }else if(f.mode!=='ground'&&(towardX||towardZ)){
+    const wall=towardX?(contact.x<0?'wall-x+':'wall-x-'):(contact.z<0?'wall-z+':'wall-z-');
+    const gap=HALF-.0175-(towardX?Math.abs(f.x):Math.abs(f.z));
+    const mayLand=f.y>.55&&f.y<MAX_ALTITUDE&&
+      (f.mode==='landing'||(f.mode==='flight'&&f.modeTime>2&&(state.metabolism.energy<.75||f.modeTime>8)));
+    if(mayLand){
+      if(f.mode!=='landing')setMode('landing');
+      if(f.landingSurface!==wall){f.landingSurface=wall;logEvent('wall-approach',{surface:wall,source:'body-policy'});}
+      const n=SURFACES[wall].normal;f.heading=Math.atan2(-n.z,-n.x);
+      if(gap<=.25&&f.landingAligned){
+        attachWall(wall,frame.forward);
+        bodyCollider.resolve(f,state.gait,{frame:surfaceFrame(f.surface,f.heading),dt:0,t:state.t,half:HALF});
+      }
+      return;
+    }
+    let vx=Math.cos(f.heading),vz=Math.sin(f.heading);
+    if(towardX)vx=-vx;if(towardZ)vz=-vz;f.heading=Math.atan2(vz,vx);
+  }
+}
+function antennaPositions(){
+  const f=state.fly; let frame;
+  if(f.mode==='ground')frame=surfaceFrame(f.surface,f.heading); else {const p=planarFrame(f.heading);frame={forward:new THREE.Vector3(p.forward.x,0,p.forward.z),right:new THREE.Vector3(p.right.x,0,p.right.z),normal:new THREE.Vector3(0,1,0)};}
+  frame=bodySensorFrame(f,frame);
+  const center=new THREE.Vector3(f.x,f.y,f.z).addScaledVector(frame.forward,.24).addScaledVector(frame.normal,.08);
+  const left=center.clone().addScaledVector(frame.right,-.13), right=center.clone().addScaledVector(frame.right,.13);
+  return {left:{x:left.x,y:left.y,z:left.z},right:{x:right.x,y:right.y,z:right.z},center:{x:center.x,y:center.y,z:center.z}};
+}
+
+function startFeeding(fruit){
+  const m=state.metabolism;
+  if(!fruit||fruit.reward<=0||fruit.amount<=0||state.fly.mode!=='ground'||state.fly.surface!=='floor'||m.energy>.985)return;
+  if(m.fruit!==fruit){m.feedTime=0;m.lastLearnAt=-99;}
+  m.feeding=true; m.fruit=fruit;
+}
