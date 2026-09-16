@@ -1,0 +1,72 @@
+const platform = new THREE.Mesh(new THREE.BoxGeometry(ARENA+0.5, 0.25, ARENA+0.5), new THREE.MeshStandardMaterial({ color:0x121d1c, roughness:.72, metalness:.08 }));
+platform.position.y=-0.135; platform.receiveShadow=true; scene.add(platform);
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(ARENA, ARENA), new THREE.MeshStandardMaterial({ map:makeGroundTexture(), color:0x9ab4a4, roughness:.93, metalness:0 }));
+floor.rotation.x=-Math.PI/2; floor.receiveShadow=true; floor.name='arena-floor'; scene.add(floor);
+
+// Subtle coordinate marks rather than a heavy grid.
+const grid = new THREE.GridHelper(ARENA, 12, 0x86a99c, 0x49645b);
+grid.material.transparent=true; grid.material.opacity=.12; grid.position.y=.006; scene.add(grid);
+
+// Glass walls make the arena volume visible while keeping the view open.
+const glassMat = new THREE.MeshPhysicalMaterial({ color:0x92c8ca, transparent:true, opacity:.085, roughness:.12, metalness:0, transmission:.65, depthWrite:false, side:THREE.DoubleSide });
+const railMat = new THREE.MeshStandardMaterial({ color:0x2e4442, roughness:.42, metalness:.48 });
+for (const side of [
+  {x:0,z:-HALF, sx:ARENA,sz:.035}, {x:0,z:HALF,sx:ARENA,sz:.035},
+  {x:-HALF,z:0,sx:.035,sz:ARENA}, {x:HALF,z:0,sx:.035,sz:ARENA}
+]) {
+  const wall = new THREE.Mesh(new THREE.BoxGeometry(side.sx, MAX_ALTITUDE+.8, side.sz), glassMat);
+  wall.position.set(side.x,(MAX_ALTITUDE+.8)/2,side.z); scene.add(wall);
+}
+for (const [x,z,sx,sz] of [[0,-HALF,ARENA+.12,.07],[0,HALF,ARENA+.12,.07],[-HALF,0,.07,ARENA+.12],[HALF,0,.07,ARENA+.12]]) {
+  for (const y of [.05,MAX_ALTITUDE+.77]) { const r=new THREE.Mesh(new THREE.BoxGeometry(sx,.07,sz),railMat); r.position.set(x,y,z); r.castShadow=true; scene.add(r); }
+}
+
+// Floating dust gives depth cues during flight.
+const dustN=260, dustPos=new Float32Array(dustN*3);
+for(let i=0;i<dustN;i++){ dustPos[i*3]=(Math.random()*2-1)*HALF; dustPos[i*3+1]=.08+Math.random()*(MAX_ALTITUDE+.35); dustPos[i*3+2]=(Math.random()*2-1)*HALF; }
+const dustGeo=new THREE.BufferGeometry(); dustGeo.setAttribute('position',new THREE.BufferAttribute(dustPos,3));
+const dust=new THREE.Points(dustGeo,new THREE.PointsMaterial({color:0xcce9df,size:.018,transparent:true,opacity:.18,depthWrite:false})); scene.add(dust);
+
+
+// ---- Fly --------------------------------------------------------------------------------------
+const flyMesh=createFly(); scene.add(flyMesh);
+const flyPovAnchor=new THREE.Object3D(); flyPovAnchor.name='fly-pov-anchor'; flyPovAnchor.position.set(0,.008,.355); flyMesh.userData.visual.add(flyPovAnchor);
+let flyViewReturn=null;
+
+// 3D trail.
+const trailMax=2200, trailPositions=new Float32Array(trailMax*3); const trailGeo=new THREE.BufferGeometry(); trailGeo.setAttribute('position',new THREE.BufferAttribute(trailPositions,3)); trailGeo.setDrawRange(0,0);
+const trail=new THREE.Line(trailGeo,new THREE.LineBasicMaterial({color:0xa8ff60,transparent:true,opacity:.65})); scene.add(trail); let trailCount=0;
+
+const SURFACE_OFFSET=.22;
+const SURFACE_BOUND=HALF-SURFACE_OFFSET;
+const SURFACES={
+  floor:{label:'suelo',normal:new THREE.Vector3(0,1,0),a:new THREE.Vector3(1,0,0),b:new THREE.Vector3(0,0,1)},
+  'wall-x+':{label:'vidrio este',normal:new THREE.Vector3(-1,0,0),a:new THREE.Vector3(0,0,1),b:new THREE.Vector3(0,1,0)},
+  'wall-x-':{label:'vidrio oeste',normal:new THREE.Vector3(1,0,0),a:new THREE.Vector3(0,0,-1),b:new THREE.Vector3(0,1,0)},
+  'wall-z+':{label:'vidrio sur',normal:new THREE.Vector3(0,0,-1),a:new THREE.Vector3(-1,0,0),b:new THREE.Vector3(0,1,0)},
+  'wall-z-':{label:'vidrio norte',normal:new THREE.Vector3(0,0,1),a:new THREE.Vector3(1,0,0),b:new THREE.Vector3(0,1,0)},
+};
+
+const state={
+  running:true, placing:false, selected:null, dragging:false, fruits:[], nextFruitId:1, inspector:false, flyView:false, flyVisionMode:'compound',
+  t:0,distance:0,contacts:0,collisions:0,reward:0,airTime:0,wallTime:0,firstFruitTime:null,lastContactAt:-99,lastTrailAt:0,explore:0,lastCollision:false,currentContact:null,
+  motor:{ flightSkill:.12, stableAir:0, safeLandings:0 },
+  gait:createTripodGaitState(),
+  metabolism:{energy:.56,hunger:.44,intake:0,feeding:false,fruit:null,feedTime:0,lastLearnAt:-99,visualLift:0},
+  odorTrace:{raw:0,filtered:0,trend:0,ready:false},
+  fly:{ x:-3.6,y:GROUND_Y,z:2.8,heading:-.7,speed:0,vy:0,mode:'ground',surface:'floor',modeTime:0,blocked:0,landingSurface:null,wallStall:0,roll:0,pitch:0,command:null }
+};
+const brain=new MushroomBodyProxy({seed});
+const activity=new ConnectomeActivityTracker({sampleHz:12,maxSeconds:60});
+const motorLearner=new AdaptiveMotorLearner({seed,windowSeconds:1.8,epsilon:.18,learningRate:.08});
+const raycaster=new THREE.Raycaster(), pointer=new THREE.Vector2(), groundPlane=new THREE.Plane(new THREE.Vector3(0,1,0),0), dragPoint=new THREE.Vector3();
+
+const extraIds=['gaitValue','surfaceHud','energyValue','hungerValue','energyBar','hungerBar','feedingValue','intakeValue','actionValue','dominantRegion','exportActivityBtn','regionBars','activityToggle','activitySource','wallTimeValue','foodAmount','foodAmountOut','panelToggleBtn','panelCloseBtn','resetCameraBtn','focusBtn','neuralInspectorBtn','flyViewBtn','flyPovBadge','flyPovCaption','ocularModeBtn','compoundModeBtn','compoundVisionCanvas','neuralInspector','niCloseBtn','niAction','niDominant','niMode','niSurface','niBars','neuralTraceCanvas','brainMode','neuralPacing','maleStatus','malecnsCard','maleNetworkValue','maleSpeedValue','maleAwakeValue','maleTopTypeValue','maleMotorModeValue','maleFwdValue','maleTurnValue','maleTakeoffValue','maleFeedValue','maleWallMotivationValue','maleOdorTrendValue','connectomeNote','adaptiveMotorCard','adaptiveToggle','adaptiveResetBtn','adaptiveStatusValue','adaptiveGenerationValue','adaptiveRewardValue','adaptiveSlipValue','adaptiveParamsValue'];
+for(const id of extraIds) ui[id]=document.getElementById(id);
+const regionRows={}; const regionNodes={};
+for(const r of CONNECTOME_REGIONS){
+  const row=document.createElement('div'); row.className='region-row'; row.innerHTML=`<b>${r.short}</b><div class="region-meter"><i></i></div><strong>0%</strong>`; ui.regionBars.appendChild(row);
+  regionRows[r.key]={bar:row.querySelector('i'),value:row.querySelector('strong')}; regionNodes[r.key]=document.querySelector(`.region-node[data-region="${r.key}"] circle`);
+}
+const niRows={}, niNodes={};
+for(const r of CONNECTOME_REGIONS){
