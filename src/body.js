@@ -1,7 +1,8 @@
 import * as THREE from '../vendor/three/build/three.module.js';
 import {createFly,animateFlyLegs} from './models.js';
 import {visibleBounds} from './containment.js';
-import {advanceCorner} from './corner.js';
+import {advanceCorner,planCornerFeet} from './corner.js';
+import {updateFootholds,releaseFootholds} from './footholds.js';
 const up=new THREE.Vector3(0,1,0);
 export function supportPlane(surface,half=6){
  const edge=half-.0175;
@@ -20,11 +21,12 @@ export function poseFly(root,f,gait,feeding,t,frame){
  root.position.set(f.x,f.y,f.z);
  if(f.bodyQuaternion)root.quaternion.fromArray(f.bodyQuaternion);
  else root.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(frame.right,frame.normal,frame.forward));
- const air=f.mode!=='ground';
+ const air=f.mode!=='ground',approaching=f.mode==='landing';
+ const wingOpen=air?1:1-(f.wingFold??1);
  // Ground contact takes precedence over decorative pitch/roll: all stance claws
  // must lie on the supporting plane. Airborne attitude remains free.
- root.userData.visual.rotation.set(air?(f.pitch||0):0,0,air?(f.roll||0):0,'XYZ');
- for(const w of root.userData.wings){w.pivot.rotation.y=-w.side*(air&&!f.landingSurface?1.04:.16);w.mesh.rotation.set(-Math.PI/2,air&&!f.landingSurface?Math.sin(t*88)*.65*w.side:.035*w.side,0);}
+ root.userData.visual.rotation.set(air&&!approaching?(f.pitch||0):0,0,air&&!approaching?(f.roll||0):0,'XYZ');
+ for(const w of root.userData.wings){w.pivot.rotation.y=-w.side*(.16+.88*wingOpen);w.mesh.rotation.set(-Math.PI/2,wingOpen>.01?Math.sin(t*88)*.65*w.side*wingOpen:.035*w.side,0);}
  const freq=f.mode==='flight'?118:f.mode==='takeoff'?126:f.mode==='landing'?90:14;
  for(const h of root.userData.halteres)h.group.rotation.z=(air?Math.sin(t*freq*.52+(h.side>0?.7:0))*.52:Math.sin(t*10)*.04)*h.side;
  animateFlyLegs(root,gait,f,feeding);
@@ -35,27 +37,40 @@ export class FlyBodyCollider {
  resolve(f,gait,{frame,dt,t,feeding=false,half=6}={}){
   this.root??=createFly();
   const old={x:f.x,y:f.y,z:f.z};
+  if(f.mode==='ground')f.wingFold=Math.min(1,(f.wingFold??1)+dt*5);else f.wingFold=0;
+  if(f.mode!=='ground'||f.corner)releaseFootholds(f);
   if(f.corner&&f.mode==='ground'){
    f.corner.gaitPhase??=gait.phase;gait.phase=f.corner.gaitPhase;
-   advanceCorner(f,dt);poseFly(this.root,f,gait,false,t,frame);
+   advanceCorner(f,dt);planCornerFeet(f);poseFly(this.root,f,gait,false,t,frame);
    // Fit the whole animated body inside both panes, then restore anchored feet.
    for(let fit=0;fit<2;fit++){
    visibleBounds(this.root,this.bounds);const edge=half-.0175,b=this.bounds;
    for(const axis of ['x','z'])f[axis]+=b.max[axis]>edge?edge-b.max[axis]:b.min[axis]<-edge?-edge-b.min[axis]:0;
    f.y+=Math.max(0,-b.min.y);poseFly(this.root,f,gait,false,t,frame);
    }
+   for(const leg of this.root.userData.legs)if(leg.ikError>1e-5)leg.stance=false;
    const feet=this.root.userData.legs.filter(l=>l.stance);
    const gaps=feet.map(l=>{const point=l.claws.localToWorld(new THREE.Vector3(0,-.006,.013)),plane=supportPlane(l.supportSurface,half);return Math.abs(point.dot(plane.normal)-plane.constant);});
    f.support={surface:f.surface,feet:feet.length,maxGap:Math.max(...gaps),transition:true};
    f.bodyContact={x:0,z:0,floor:0,supportLost:false,correction:{x:f.x-old.x,y:f.y-old.y,z:f.z-old.z}};
-   if(f.corner.elapsed>=f.corner.duration)f.corner=null;
+   if(feet.length<3){
+    f.corner=null;f.mode='takeoff';f.surface='air';f.modeTime=0;f.vy=.45;gait.grounded=false;f.support={surface:null,feet:0,maxGap:null};f.bodyContact.supportLost=true;
+    const forward=new THREE.Vector3(0,0,1).applyQuaternion(new THREE.Quaternion().fromArray(f.bodyQuaternion));f.heading=Math.atan2(forward.z,forward.x);
+   }else if(f.corner.elapsed>=f.corner.duration)f.corner=null;
    return f.bodyContact;
   }
   if(f.mode!=='ground')f.corner=null;
   this.target.setFromRotationMatrix(this.matrix.makeBasis(frame.right,frame.normal,frame.forward));
   if(f.mode==='ground'||!f.bodyQuaternion)this.q.copy(this.target);
   else this.q.fromArray(f.bodyQuaternion).rotateTowards(this.target,Math.PI*3*dt);
+  f.landingAligned=this.q.angleTo(this.target)<.12;
   f.bodyQuaternion=this.q.toArray();poseFly(this.root,f,gait,feeding,t,frame);
+  if(f.mode==='ground'&&f.legAnchors){
+   const bad=this.root.userData.legs.some(l=>l.stance&&l.ikError>1e-5);
+   if(bad&&f.lastGroundPose){
+    updateFootholds(this.root,f,dt);Object.assign(f,f.lastGroundPose);poseFly(this.root,f,gait,feeding,t,frame);
+   }
+  }
   let plane=f.mode==='ground'?supportPlane(f.surface,half):null,supportLost=false;
   // Fit the tangent directions before testing support at a finite wall edge.
   // Otherwise a claw extending past the adjacent glass would cause a false fall.
@@ -87,8 +102,12 @@ export class FlyBodyCollider {
   let floor=0;
   if(!plane){const feet=footContacts(this.root,supportPlane('floor'),false);floor=Math.max(0,-Math.min(...feet.map(p=>p.gap)));}
   else if(plane.axis!=='y')floor=Math.max(0,-b.min.y);
-  f.x+=dx;f.y+=floor;f.z+=dz;this.root.position.set(f.x,f.y,f.z);
+  f.x+=dx;f.y+=Math.max(floor,!plane?-b.min.y:0);f.z+=dz;this.root.position.set(f.x,f.y,f.z);
   f.bodyFloorHeight=f.y-b.min.y;
+  // Re-pose after collision correction so anchored world contacts do not move with the root.
+  poseFly(this.root,f,gait,feeding,t,frame);
+  updateFootholds(this.root,f,dt);poseFly(this.root,f,gait,feeding,t,frame);
+  if(plane)f.lastGroundPose={x:f.x,y:f.y,z:f.z,heading:f.heading,bodyQuaternion:[...f.bodyQuaternion]};
   const contacts=plane?footContacts(this.root,plane):[];
   f.support={surface:plane?f.surface:null,feet:contacts.length,maxGap:contacts.length?Math.max(...contacts.map(p=>Math.abs(p.gap))):null};
   f.bodyContact={x:dx+edgeX,z:dz+edgeZ,floor,supportLost,correction:{x:f.x-old.x,y:f.y-old.y,z:f.z-old.z}};

@@ -2,11 +2,13 @@
 
 **An experimental browser-based laboratory for embodied connectomics in _Drosophila melanogaster_.**
 
+**Current release: v1.3.1 — biomechanics and eye-safe grooming.**
+
 FlyLab asks a deliberately narrow scientific question:
 
 > **What changes when a structural nervous-system connectome is coupled to a body, sensory inputs, internal state and adaptive motor control?**
 
-The project uses the 2026 **MaleCNS v1.0** connectome as a structural substrate for a virtual fly that can sense odor and contact, walk on the floor and glass walls, cross corners, fly, land, feed, and adapt aspects of its terrestrial locomotion. The goal is not to claim that a connectome is a complete brain. The goal is to build an auditable experimental system in which the contribution of the connectome can be separated from the dynamics, controllers and body models added around it.
+The project uses the 2026 **MaleCNS v1.0** connectome as a structural substrate for a virtual fly that can sense odor and contact, walk on the floor and glass walls, cross corners, fly, land, feed, groom, and adapt aspects of its terrestrial locomotion. The goal is not to claim that a connectome is a complete brain. The goal is to build an auditable experimental system in which the contribution of the connectome can be separated from the dynamics, controllers and body models added around it.
 
 ## Live demo
 
@@ -34,7 +36,7 @@ FlyLab exposes three conditions so modeled behavior is not confused with connect
 
 - **Proxy** — a compact functional controller drives behavior. No claim is made that the displayed activity is MaleCNS activity.
 - **MaleCNS Observe** — the embodied sensory state is sent through the MaleCNS-derived LIF network and the Neural Inspector displays aggregated spikes, while locomotion remains under the proxy controller.
-- **MaleCNS Control** — identified descending-neuron populations are read from the network and used as high-level locomotor intent. Body mechanics, gait generation, landing, feeding policy and several other processes remain modeled layers.
+- **MaleCNS Control** — identified descending-neuron populations are read from the network and used as high-level locomotor intent. Body mechanics, gait generation, landing, grooming, feeding policy and several other processes remain modeled layers.
 
 ## What is modeled
 
@@ -47,7 +49,9 @@ The browser runtime currently includes:
 - identified descending-neuron readouts for forward/backward motion, steering and takeoff;
 - an explicit endogenous-drive model for spontaneous behavioral bouts;
 - a tripod gait prior plus online residual motor adaptation;
+- six articulated legs with inverse kinematics, fixed modeled segment lengths, support anchoring and reach-aware terrestrial motion;
 - floor and wall locomotion, wall-to-wall corner transitions, flight, landing and feeding;
+- explicit foreleg grooming with four-leg body support and geometric clearance from the modeled compound eyes;
 - hunger-modulated search behavior on walls;
 - session and neural-activity export for analysis.
 
@@ -61,7 +65,7 @@ Important current limitations include:
 2. **Potential shortcut in the motor loop.** The endogenous controller currently biases several DN populations that are also read by the motor decoder. This can allow a direct `intrinsic drive -> DN firing -> motor command` pathway whose dependence on the larger graph remains to be quantified.
 3. **Full-graph performance.** A stored Node benchmark measured approximately `0.036x` neural real time for the full graph. The default interactive browser pacing can therefore hold the most recent confirmed DN command while neural time lags body time and may coalesce sensory samples under load.
 4. **Simplified synaptic physiology.** The current LIF model uses uniform baseline synaptic scaling and delay parameters. Dopamine, serotonin and octopamine are not yet represented with a separate slow metabotropic model.
-5. **Hybrid embodiment.** Gait, contact mechanics, flight control, landing and feeding include explicit engineering models rather than a complete muscle-by-muscle reconstruction.
+5. **Hybrid embodiment.** Gait, contact mechanics, flight control, landing, grooming and feeding include explicit engineering models rather than a complete muscle-by-muscle reconstruction. The grooming sequence in v1.3.1 is therefore a body policy, not a behavior claimed to emerge from MaleCNS.
 
 See [`docs/SCIENTIFIC_LIMITATIONS.md`](docs/SCIENTIFIC_LIMITATIONS.md) for the detailed interpretation boundary.
 
@@ -130,9 +134,11 @@ The manifest records provenance, size and SHA-256 checksums. The MaleCNS dataset
 npm test
 ```
 
-The repository contains unit and regression tests for sensory/proxy behavior, gait, adaptive motor learning, MaleCNS codecs and motor readout, pacing, contact mechanics, wall transitions, landing, corner transitions and camera behavior.
+FlyLab v1.3.1 passes **182 automated tests**. The suite covers sensory/proxy behavior, gait, adaptive motor learning, MaleCNS codecs and motor readout, pacing, contact mechanics, articulated-leg kinematics, stance-foot support, grooming and eye clearance, wall transitions, landing, corner transitions and camera behavior.
 
 A known limitation of the current suite is that part of `tests/regressions.test.mjs` extracts functions from `src/main.js` into a VM with MaleCNS/adaptive paths stubbed. This is useful regression coverage but is **not** full integration coverage of the live MaleCNS control loop. Refactoring the simulation core into directly importable pure modules is on the validation roadmap.
+
+See [`docs/VALIDATION_v1.3.1.md`](docs/VALIDATION_v1.3.1.md) for the current biomechanics/grooming validation boundary.
 
 ## Repository layout
 
@@ -143,7 +149,8 @@ flylab/
 ├── styles.css
 ├── src/                       # simulation, body, brain and MaleCNS runtime
 ├── tests/                     # automated tests
-├── tools/                     # headless benchmark utilities
+├── validation/                # longer headless validation harnesses
+├── tools/                     # benchmark utilities
 ├── data/malecns/              # pinned compact MaleCNS mirror
 ├── benchmarks/                # raw validation/performance evidence
 ├── docs/                      # architecture and scientific notes

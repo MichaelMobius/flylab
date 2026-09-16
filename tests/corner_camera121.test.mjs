@@ -2,23 +2,23 @@ import test from 'node:test';import assert from 'node:assert/strict';import fs f
 import * as THREE from '../vendor/three/build/three.module.js';
 import {engine} from './regressions.test.mjs';import {visibleBounds} from '../src/containment.js';import {poseFly} from '../src/body.js';
 const walls=['wall-x+','wall-x-','wall-z+','wall-z-'];
-test('staged corners keep four anchors, continuous attitude and body inside real glass on all routes',()=>{
+test('staged corners keep three anchors, continuous attitude and body inside real glass on all routes',()=>{
  for(const from of walls)for(const to of walls.filter(w=>w[5]!==from[5]))for(const sign of [1,-1]){
   const {ctx,state}=engine(),f=state.fly;ctx.attachWall(from,new THREE.Vector3(0,1,0));
   f[to[5]]=(to.endsWith('+')?1:-1)*5.1;f.y=2;f.speed=sign*.45;
   state.gait.phase=sign>0?4.7:1.9;state.gait.amplitude=.6;
   const dir=new THREE.Vector3();dir[to[5]]=(to.endsWith('+')?1:-1)*sign;f.heading=ctx.headingFromWorld(from,dir);
-  for(let i=0;i<300&&!f.corner;i++){ctx.moveOnSurface(1/120,sign*.45,0);ctx.resolveBodyContact(1/120);}
+  for(let i=0;i<300&&!f.corner;i++){ctx.updateTripodGait(state.gait,1/120,{grounded:true,speed:sign*.45,desiredSpeed:sign*.45});ctx.moveOnSurface(1/120,sign*.45,0);ctx.resolveBodyContact(1/120);}
   assert(f.corner);let steps=0;let q=new THREE.Quaternion().fromArray(f.bodyQuaternion);let position=new THREE.Vector3(f.x,f.y,f.z);
-  while(f.corner&&steps++<100){
+  while(f.corner&&steps++<180){
    ctx.moveOnSurface(1/120,sign*.45,0);ctx.resolveBodyContact(1/120);
    const next=new THREE.Quaternion().fromArray(f.bodyQuaternion),pos=new THREE.Vector3(f.x,f.y,f.z);
    assert(q.angleTo(next)<.04,'no attitude snap');assert(position.distanceTo(pos)<.06,'no position jump');q=next;position=pos;
-   assert.equal(f.mode,'ground');assert(f.support.feet>=4);assert(f.support.maxGap<1e-7);
+   assert.equal(f.mode,'ground');assert(f.support.feet>=3);assert(f.support.maxGap<1e-7);
    const b=visibleBounds(ctx.bodyCollider.root,new THREE.Box3());
    assert(b.max.x<=5.985&&b.min.x>=-5.985&&b.max.z<=5.985&&b.min.z>=-5.985,JSON.stringify({from,to,sign,steps,min:b.min,max:b.max}));
   }
-  assert(steps>=80&&steps<=88);assert.equal(f.corner,null);
+  assert(steps>=140&&steps<=145);assert.equal(f.corner,null);
   ctx.resolveBodyContact(1/120);assert.equal(f.mode,'ground');assert(f.support.maxGap<1e-7);
  }
 });
@@ -41,4 +41,3 @@ test('ocular camera stays at head and faces travel on floor, every wall and air 
   assert(camera.position.distanceTo(anchor.getWorldPosition(new THREE.Vector3()))<1e-9);
  }
 });
-

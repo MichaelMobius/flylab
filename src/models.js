@@ -1,7 +1,9 @@
 import * as THREE from '../vendor/three/build/three.module.js';
 import {seededRandom} from './runtime.js';
 import {tripodFoot} from './gait.js';
+import {groomingTarget,groomingPole} from './grooming.js';
 import {cornerFoot} from './corner.js';
+import {legRest,solveLeg} from './leg-ik.js';
 
 const V=(x=0,y=0,z=0)=>new THREE.Vector3(x,y,z);
 function mesh(parent,geo,mat,pos=[0,0,0],scale=[1,1,1]){const m=new THREE.Mesh(geo,mat);m.position.set(...pos);m.scale.set(...scale);m.castShadow=true;parent.add(m);return m;}
@@ -82,7 +84,7 @@ export function createFly(){
   // coxa, trochanter, femur, tibia, and five distinct tarsomeres.
   for(const r of [.013,.010,.012,.007,.005,.0042,.0037,.0032,.0027])parts.push(mesh(group,new THREE.CylinderGeometry(r*.7,r,1,8),gold));
   const claws=new THREE.Group();for(const d of [-1,1])line(claws,[[d*.002,0,0],[d*.007,-.002,.007],[d*.005,-.006,.013]],bristleMat);group.add(claws);
-  legs.push({group,parts,claws,side,pair,baseZ:.096-pair*.105,phase:((side<0&&pair!==1)||(side>0&&pair===1))?0:Math.PI});
+  legs.push({group,parts,claws,side,pair,baseZ:.096-pair*.105,rest:legRest(side,pair),phase:((side<0&&pair!==1)||(side>0&&pair===1))?0:Math.PI});
  }
  const proboscis=new THREE.Group();proboscis.position.set(0,-.062,.249);
  segment(proboscis,V(),V(0,-.055,.072),.010,gold);for(const s of [-1,1])ellipsoid(proboscis,gold,[s*.009,-.058,.078],[.011,.008,.018]);proboscis.visible=false;visual.add(proboscis);
@@ -92,7 +94,7 @@ export function createFly(){
 
 export function animateFlyLegs(g,gait,f,feeding){
  const walking=f.mode==='ground'||f.mode==='landing';
- const stepping=f.mode==='ground'&&!feeding;
+ const stepping=f.mode==='ground'&&!feeding&&!f.groom?.pause;
  g.updateWorldMatrix(true,true);
  for(const [legIndex,leg] of g.userData.legs.entries()){
   const {side:s,pair,baseZ:z}=leg;
@@ -102,26 +104,28 @@ export function animateFlyLegs(g,gait,f,feeding){
   // Smaller stride amplitude is matched to body translation; the old value made feet scrub
   // backwards much faster than the fly moved, which looked like loss of coordination.
   const stride=.036*k.fore, lift=.046*k.lift;
-  const base=V(.076*s,-.045,z),coxa=V(.097*s,-.067,z+spread*.05),troch=V(.116*s,-.073,z+spread*.16);
-  const knee=walking?V(.179*s,-.064+lift*.28,z+spread*.52-stride*.16):V(.139*s,-.064,z-.045);
-  const ankle=walking?V(.251*s,-.151+lift*.88,z+spread*.90+stride*.72):V(.184*s,-.104,z-.113);
   const foot=walking?V(.305*s,-.181+lift,z+spread+stride):V(.219*s,-.119,z-.162);
   if(f.corner&&walking){
    const target=cornerFoot(f.corner,leg,legIndex);leg.stance=target.stance;leg.supportSurface=target.surface;
    const c=f.corner,worldQ=new THREE.Quaternion().fromArray(c.start.quaternion).slerp(new THREE.Quaternion().fromArray(c.end.quaternion),target.blend);
    leg.claws.quaternion.copy(leg.group.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(worldQ));
-   const local=leg.group.worldToLocal(target.point).sub(V(0,-.006,.013).applyQuaternion(leg.claws.quaternion)),delta=local.clone().sub(foot);
-   // Keep proximal joints attached; distribute the reach through tibia and tarsus.
-   knee.addScaledVector(delta,.35);ankle.addScaledVector(delta,.8);foot.copy(local);
+   const local=leg.group.worldToLocal(target.point).sub(V(0,-.006,.013).applyQuaternion(leg.claws.quaternion));
+   foot.copy(local);
   }else {leg.supportSurface=f.surface;leg.claws.quaternion.identity();}
-  const points=[base,coxa,troch,knee,ankle];
-  // Five tarsomeres follow a shallow arc. During stance the terminal claw remains nearly planar,
-  // while during swing it lifts with the tibia instead of snapping through the floor.
-  for(let i=1;i<=5;i++){
-    const u=i/5,p=ankle.clone().lerp(foot,u);
-    if(walking&&!k.stance)p.y+=Math.sin(Math.PI*u)*lift*.12;
-    points.push(p);
+  if(!f.corner&&f.mode==='ground'&&leg.stance){
+   const anchor=f.legAnchors?.[legIndex];
+   if(anchor?.surface===f.surface&&anchor?.stance){foot.copy(leg.group.worldToLocal(V().fromArray(anchor.point))).sub(V(0,-.006,.013));}
   }
+  const forced=f.legSteps?.[legIndex];
+  if(forced&&f.mode==='ground'&&!f.corner){
+   leg.stance=false;const u=Math.min(1,forced.elapsed/.12),start=leg.group.worldToLocal(V().fromArray(forced.start)).sub(V(0,-.006,.013));
+   foot.copy(start.lerp(foot,u*u*(3-2*u)));foot.y+=.035*Math.sin(Math.PI*u);
+  }
+  const grooming=f.groom?.active&&leg.pair===0;
+  if(grooming){foot.copy(groomingTarget(leg,f.groom.elapsed));leg.stance=false;}
+  const pole=grooming?groomingPole(leg,f.groom.elapsed):V(0,1,0);
+  const ik=solveLeg(leg.rest,foot,pole,grooming?2.3:undefined);const points=ik.points;foot.copy(points.at(-1));
+  leg.ikError=ik.error;leg.jointAngles={knee:ik.kneeAngle,hip:ik.hipAngle,ankle:ik.ankleAngle};
   leg.parts.forEach((m,i)=>{const a=points[i],b=points[i+1],d=b.clone().sub(a);m.position.copy(a).add(b).multiplyScalar(.5);m.scale.y=d.length();m.quaternion.setFromUnitVectors(V(0,1,0),d.normalize());});leg.claws.position.copy(foot);
  }
 }

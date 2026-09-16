@@ -2,6 +2,17 @@
 
 This file summarizes the public development line. Earlier per-version changelog files were consolidated during the repository cleanup; Git history should be used for future changes.
 
+## 1.3.1
+
+- Added articulated six-leg inverse kinematics with fixed segment lengths and modeled joint limits.
+- Added world-space stance-foot anchoring on the floor and glass walls, with reach-aware body motion.
+- Improved support transfer during floor/wall and wall/wall transitions.
+- Added an explicit four-second foreleg grooming behavior while the remaining legs support the body.
+- Added a modeled dirt/grooming trigger and a manual grooming control; grooming remains an explicit body policy, not a behavior claimed to emerge from MaleCNS.
+- Corrected foreleg inverse-kinematics geometry during grooming so leg segments route around the compound-eye volumes instead of penetrating them.
+- Added geometric regression coverage for eye clearance during grooming and expanded the automated suite to 182 passing tests.
+- Added headless validation utilities for longer MaleCNS/embodiment runs.
+
 ## 1.2.1
 
 - Progressive body rotation when crossing between adjacent glass walls.

@@ -5,7 +5,7 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1" name="viewport"/>
 <meta content="FlyLab: laboratorio 3D inmersivo de navegación olfativa, vuelo, locomoción terrestre, alimentación y actividad conectómica inspirada en Drosophila." name="description"/>
-<title>FlyLab 1.2.1 — Hunger-Motivated Search</title>
+<title>FlyLab 1.3.1 — Biomecánica y acicalamiento</title>
 <link href="./styles.css" rel="stylesheet"/>
 <script type="importmap">
   {
@@ -21,7 +21,7 @@
 <header class="topbar">
 <div>
 <div class="eyebrow">CONNECTOME-READY BEHAVIOR LAB · FEED · CLIMB · FLY</div>
-<h1>FlyLab <span>1.2.1</span></h1>
+<h1>FlyLab <span>1.3.1</span></h1>
 <p>Una mosca autónoma con MaleCNS que puede aprender en línea cómo convertir órdenes descendentes en locomoción corporal estable.</p>
 </div>
 <div class="status-cluster">
@@ -32,6 +32,7 @@
 <section aria-label="Controles principales" class="toolbar">
 <button aria-label="Pausar o continuar" class="primary tool-btn" id="runBtn" title="Pausar o continuar" type="button"><span class="tool-ico">⏯</span></button>
 <button aria-label="Forzar despegue" class="flight tool-btn" id="flightBtn" title="Forzar despegue" type="button"><span class="tool-ico">🪽</span></button>
+<button id="groomBtn" class="tool-btn" title="Solicitar acicalamiento al posarse" aria-label="Acicalar">✧</button>
 <button aria-label="Nuevo ensayo (borra memoria y repone alimento)" class="tool-btn" id="resetFlyBtn" title="Nuevo ensayo" type="button"><span class="tool-ico">↺</span></button>
 <button aria-label="Borrar memoria" class="tool-btn" id="clearMemoryBtn" title="Borrar memoria" type="button"><span class="tool-ico">◌</span></button>
 <div aria-hidden="true" class="separator"></div>
@@ -145,7 +146,7 @@
 </div>
 <div class="skill-head"><span>Habilidad de vuelo</span><strong id="flightSkillValue">12%</strong></div>
 <div class="skill-meter"><i id="flightSkillBar"></i></div>
-<p class="model-note">La habilidad de vuelo sigue siendo un <em>proxy</em>. En tierra, v1.2.1 puede usar una capa adaptativa separada: MaleCNS aporta la intención descendente y la locomoción aprende residuos sobre un CPG trípode.</p>
+<p class="model-note">La habilidad de vuelo sigue siendo un <em>proxy</em>. En tierra, v1.3.1 puede usar una capa adaptativa separada: MaleCNS aporta la intención descendente y la locomoción aprende residuos sobre un CPG trípode.</p>
 </section>
 <section class="panel-section collapsed" data-collapsible="true" data-section-key="percepción">
 <div class="section-head"><h2>Percepción</h2><span>antenas 3D</span><button aria-expanded="false" aria-label="Plegar o desplegar Percepción" class="section-toggle" type="button">⌄</button></div>
@@ -250,7 +251,7 @@
 </section>
 <footer>
 <p><strong>Estado científico:</strong> prototipo experimental. La mosca nunca recibe las coordenadas de las frutas. Las colisiones usan volúmenes elipsoidales conservadores; el aprendizaje motor y parte del mapa funcional neural todavía son proxies explícitos.</p>
-<p>FlyLab 1.2.1 · GitHub Pages · WebGL · MaleCNS Observe/Control · sin backend.</p>
+<p>FlyLab 1.3.1 · GitHub Pages · WebGL · MaleCNS Observe/Control · sin backend.</p>
 </footer>
 </main>
 <script type="module">
