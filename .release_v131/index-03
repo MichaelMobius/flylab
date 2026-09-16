@@ -1,0 +1,27 @@
+<label>Alimento restante <output id="foodAmountOut">100%</output><input id="foodAmount" max="1" min="0" step="0.05" type="range" value="1"/></label>
+<div class="xy-grid">
+<label>X <input id="fruitX" max="5.5" min="-5.5" step="0.1" type="number"/></label>
+<label>Z <input id="fruitZ" max="5.5" min="-5.5" step="0.1" type="number"/></label>
+</div>
+<button aria-label="Eliminar fruta" class="danger tool-btn" id="deleteFruitBtn" title="Eliminar fruta" type="button"><span class="tool-ico">🗑</span></button>
+</div>
+</section>
+</aside>
+</section>
+<section class="method-strip">
+<div><strong>1 · Mundo 3D</strong><span>frutas con volumen + plumas 3D</span></div><div class="arrow">→</div>
+<div><strong>2 · Sensación</strong><span>antena L / R en el espacio</span></div><div class="arrow">→</div>
+<div><strong>3 · Cerebro</strong><span>ORN → KC → MBON/DAN</span></div><div class="arrow">→</div>
+<div><strong>4 · Acción</strong><span>caminar ↔ trepar ↔ despegar ↔ volar ↔ aterrizar</span></div><div class="arrow">→</div>
+<div><strong>5 · Aprendizaje</strong><span>olor + alimento + recompensa + habilidad motora</span></div>
+</section>
+<footer>
+<p><strong>Estado científico:</strong> prototipo experimental. La mosca nunca recibe las coordenadas de las frutas. Las colisiones usan volúmenes elipsoidales conservadores; el aprendizaje motor y parte del mapa funcional neural todavía son proxies explícitos.</p>
+<p>FlyLab 1.3.1 · GitHub Pages · WebGL · MaleCNS Observe/Control · sin backend.</p>
+</footer>
+</main>
+<script type="module">
+import('./src/main.js').catch(error=>{document.getElementById('statusText').textContent='No se pudo iniciar la vista 3D. Usa un navegador con WebGL y abre el proyecto con un servidor local.';document.getElementById('viewport').textContent=error.message;console.error(error);});
+</script>
+</body>
+</html>
