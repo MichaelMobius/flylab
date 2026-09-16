@@ -1,0 +1,33 @@
+function refreshFruitList(){const list=document.getElementById('fruitList');if(!list)return;list.replaceChildren(new Option('Seleccionar fruta…',''));for(const f of state.fruits)list.add(new Option(FRUIT_LIBRARY[f.type].label+' #'+f.id,String(f.id)));if(state.selected)list.value=String(state.selected.id);}
+document.getElementById('fruitList').addEventListener('change',e=>{selectFruit(state.fruits.find(f=>String(f.id)===e.target.value)||null);setPanelOpen(true);});
+document.getElementById('addCenterBtn').addEventListener('click',()=>{const type=ui.fruitType.value;for(let z=-4;z<=4;z+=1.4)for(let x=-4;x<=4;x+=1.4){if(placementAllowed({type,x,z,id:-1},state.fruits)){addFruit(type,x,z);setPanelOpen(true);return;}}notice('No hay espacio libre para otra fruta.');});
+document.getElementById('exportSessionBtn').addEventListener('click',()=>download('flylab-session-'+seed+'.json',JSON.stringify({...session,final:scenario(),motorLearning:motorLearner.export(),channelSources:CONNECTOME_REGIONS,channelsKeySource:'proxy',neuralSource:maleCNS.info,neuralProtocol:{pacing:maleCNS.pacing,batchTicks:10,coalescedTicks:maleCNS.coalesced,description:maleCNS.pacing==='interactive'?'Body runs independently; latest confirmed DN command is held; oldest queued sensory ticks are replaced under load. Neural time can lag body time.':'Body waits for each acknowledged batch; all sensory ticks are retained.'},model:'MaleCNS bridge + adaptive CPG/traction model; not a full musculoskeletal reconstruction'},null,2),'application/json'));
+document.getElementById('qualitySelect').addEventListener('change',e=>{renderer.setPixelRatio(Math.min(devicePixelRatio,e.target.value==='low'?1:2));renderer.shadowMap.enabled=e.target.value!=='low';resize();});
+renderer.domElement.addEventListener('webglcontextlost',e=>{e.preventDefault();setRunning(false);notice('Se perdió el contexto gráfico. Exporta tu sesión y recarga la página.');});
+
+// Initial assay.
+addFruit('apple',3.15,-2.15);addFruit('banana',-1.8,-3.55);addFruit('orange',2.3,2.6);selectFruit(null);resetFly(false);setRunning(true);ui.statusText.textContent='Simulación activa · suelo + vidrio + vuelo + alimentación visible';ui.statusDot.classList.add('live');
+
+// Warm up materials before starting the experiment clock.
+renderer.render(scene,camera);
+let last=null,lastUI=0;
+document.addEventListener('visibilitychange',()=>{last=null;stepper.clear();if(document.hidden){setRunning(false);notice('Pausado al ocultar la pestaña. Pulsa continuar para reanudar.');}});
+function frame(now){
+ const seconds=last===null?0:Math.max(0,(now-last)/1000);last=now;
+ if(state.running&&!stepper.advance(seconds,simulate)){setRunning(false);notice('Pausado por una interrupción prolongada del navegador.');}
+ if(!state.running)stepper.clear();
+ updateFlyMesh(state.t);if(now-lastUI>80&&state.latest){const q=state.latest;updateTelemetry(q.telemetry,q.left,q.right,displayedActivity(q.vals));lastUI=now;}
+ if(state.flyView)updateFlyViewCamera();else {updateInspectorCamera();controls.update();}
+ const selfVisible=flyMesh.visible;
+ if(state.flyView && state.flyVisionMode==='compound'){
+   flyMesh.visible=false;
+   renderCompoundVision(now);
+   renderer.setRenderTarget(null);
+ }else{
+   ui.compoundVisionCanvas.hidden=true;
+   if(state.flyView)flyMesh.visible=false;
+   renderer.render(scene,camera);
+ }
+ flyMesh.visible=selfVisible;requestAnimationFrame(frame);
+}requestAnimationFrame(frame);
+
