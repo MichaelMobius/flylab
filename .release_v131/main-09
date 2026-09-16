@@ -1,0 +1,78 @@
+function setNeuralInspector(on){
+  if(on&&state.flyView)setFlyView(false,{restore:false});
+  state.inspector=!!on;ui.neuralInspector.hidden=!state.inspector;ui.neuralInspectorBtn.classList.toggle('inspector-live',state.inspector);ui.neuralInspectorBtn.setAttribute('aria-pressed',String(state.inspector));document.querySelector('.viewport-wrap').classList.toggle('neural-following',state.inspector);
+  if(state.inspector){ui.activityToggle.checked=true; const t=flyMesh.position.clone(); controls.target.copy(t); camera.position.copy(t.clone().add(new THREE.Vector3(1.65,1.15,2.1)));controls.minDistance=.72;controls.maxDistance=10;controls.update();}
+  else{controls.minDistance=2.15;controls.maxDistance=36;}
+}
+function updateInspectorCamera(){
+  if(!state.inspector)return; const target=flyMesh.position.clone(); const delta=target.clone().sub(controls.target).multiplyScalar(.14); controls.target.add(delta);camera.position.add(delta);
+}
+function setFlyView(on,{restore=true}={}){
+  const next=!!on;
+  if(next===state.flyView)return;
+  if(next){
+    if(state.inspector)setNeuralInspector(false);
+    flyViewReturn={position:camera.position.clone(),target:controls.target.clone(),up:camera.up.clone(),fov:camera.fov,near:camera.near};
+    state.flyView=true;
+    controls.enabled=false;
+    camera.fov=state.flyVisionMode==='compound'?150:115; camera.near=state.flyVisionMode==='compound'?.02:.03; camera.updateProjectionMatrix();
+    ui.flyViewBtn.classList.add('inspector-live'); ui.flyViewBtn.setAttribute('aria-pressed','true');
+    ui.flyViewBtn.title='Salir de la vista de la mosca';
+    ui.flyPovBadge.hidden=false;
+    document.querySelector('.viewport-wrap').classList.add('fly-pov-active');
+    updateFlyVisionButtons();
+    updateFlyViewCamera(true);
+  }else{
+    state.flyView=false;
+    controls.enabled=true;
+    ui.flyViewBtn.classList.remove('inspector-live'); ui.flyViewBtn.setAttribute('aria-pressed','false');
+    ui.flyViewBtn.title='Ver desde la cabeza de la mosca';
+    ui.flyPovBadge.hidden=true;
+    ui.compoundVisionCanvas.hidden=true;
+    document.querySelector('.viewport-wrap').classList.remove('fly-pov-active','compound-active');
+    if(restore&&flyViewReturn){
+      camera.position.copy(flyViewReturn.position); controls.target.copy(flyViewReturn.target); camera.up.copy(flyViewReturn.up); camera.fov=flyViewReturn.fov; camera.near=flyViewReturn.near; camera.updateProjectionMatrix(); controls.update();
+    }else{
+      camera.fov=48; camera.near=.05; camera.updateProjectionMatrix();
+    }
+    flyViewReturn=null;
+  }
+}
+function updateFlyViewCamera(force=false){
+  if(!state.flyView)return;
+  const pose=getFlyEyePose();
+  const direction=pose.forward.clone();
+  if(state.flyVisionMode==='ocular'&&state.fly.speed<-.025)direction.negate();
+  controls.target.copy(pose.pos).addScaledVector(direction,3);
+  camera.position.copy(pose.pos);
+  camera.up.copy(pose.up);
+  camera.fov=state.flyVisionMode==='compound'?150:115;
+  camera.lookAt(controls.target);
+  camera.updateProjectionMatrix();
+}
+function updateActivityUI(vals){
+  updateInspectorUI(vals);
+  if(!ui.activityToggle.checked)return; ui.actionValue.textContent=activity.action;ui.dominantRegion.textContent=displayedDominant(vals);
+  for(const r of CONNECTOME_REGIONS){const v=vals[r.key]||0,p=Math.round(v*100);regionRows[r.key].bar.style.width=`${p}%`;regionRows[r.key].value.textContent=`${p}%`;const node=regionNodes[r.key];if(node){node.style.fill=`rgba(${110+Math.round(145*v)},${150+Math.round(72*v)},${120-Math.round(45*v)},${.28+.72*v})`;node.style.filter=`drop-shadow(0 0 ${2+8*v}px rgba(255,200,87,${.15+.65*v}))`;}}
+}
+
+function updateAdaptiveUI(){
+  if(!ui.adaptiveStatusValue)return;
+  const st=motorLearner.status(), control=usingMaleControl(), enabled=ui.adaptiveToggle.checked;
+  let label='esperando MaleCNS';
+  if(!enabled)label='desactivado';
+  else if(control&&st.training)label=`aprendiendo ${st.phase==='plus'?'+':'−'}`;
+  else if(control)label=state.metabolism.feeding?'pausa · alimentación':'política aprendida';
+  ui.adaptiveStatusValue.textContent=label;
+  ui.adaptiveGenerationValue.textContent=String(st.generation);
+  ui.adaptiveRewardValue.textContent=Number.isFinite(st.meanReward)?st.meanReward.toFixed(3):'0.000';
+  const slip=st.metrics?.slip; ui.adaptiveSlipValue.textContent=Number.isFinite(slip)?slip.toFixed(3):'—';
+  const p=st.params;
+  ui.adaptiveParamsValue.textContent=`cad ${p.cadenceScale.toFixed(2)} · amp ${p.amplitudeScale.toFixed(2)} · duty ${p.dutyOffset>=0?'+':''}${p.dutyOffset.toFixed(3)} · φ ${p.tripodPhaseDelta>=0?'+':''}${p.tripodPhaseDelta.toFixed(2)} · giro ${p.turnGain.toFixed(2)}`;
+}
+
+function updateTelemetry(t,Lraw,Rraw,vals){
+  const l=Math.min(1,Lraw/2.4),r=Math.min(1,Rraw/2.4),g=Math.max(-1,Math.min(1,(Lraw-Rraw)/1.4));
+  ui.leftOdorBar.style.width=`${l*100}%`;ui.rightOdorBar.style.width=`${r*100}%`;ui.leftOdorValue.textContent=Lraw.toFixed(2);ui.rightOdorValue.textContent=Rraw.toFixed(2);ui.gradientValue.textContent=(Lraw-Rraw>=0?'+':'')+(Lraw-Rraw).toFixed(2);ui.gradientBar.style.left=g<0?`${50+g*50}%`:'50%';ui.gradientBar.style.width=`${Math.abs(g)*50}%`;
+  ui.ornValue.textContent=`${t.ornHz.toFixed(1)} Hz`;ui.kcValue.textContent=`${t.kcActive} / ${brain.kcCount}`;ui.memoryValue.textContent=`${t.memoryValue>=0?'+':''}${t.memoryValue.toFixed(2)}`;ui.dopamineValue.textContent=t.dopamine.toFixed(2);ui.turnValue.textContent=`${t.turn>=0?'+':''}${t.turn.toFixed(2)}`;
+  ui.clockValue.textContent=`${state.t.toFixed(1)} s`;ui.contactValue.textContent=state.contacts;ui.collisionValue.textContent=state.collisions;ui.rewardValue.textContent=state.reward.toFixed(2);ui.distanceValue.textContent=state.distance.toFixed(1);ui.airTimeValue.textContent=`${state.airTime.toFixed(1)} s`;ui.wallTimeValue.textContent=`${state.wallTime.toFixed(1)} s`;ui.firstFruitValue.textContent=state.firstFruitTime===null?'—':`${state.firstFruitTime.toFixed(1)} s`;
