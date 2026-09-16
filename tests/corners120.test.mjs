@@ -14,10 +14,10 @@ test('all eight directed corners transfer support while walking forward and back
   state.fly.heading=ctx.headingFromWorld(from,dir);state.gait.phase=.27;
   const expected=dir.clone().applyQuaternion(new THREE.Quaternion().setFromUnitVectors(ctx.SURFACES[from].normal,ctx.SURFACES[to].normal));
   for(let i=0;i<450&&state.fly.surface===from;i++){
-   state.t+=dt;state.fly.modeTime+=dt;ctx.moveOnSurface(dt,sign*.45,0);const y=state.fly.y;
+   state.t+=dt;state.fly.modeTime+=dt;ctx.updateTripodGait(state.gait,dt,{grounded:true,speed:sign*.45,desiredSpeed:sign*.45});ctx.moveOnSurface(dt,sign*.45,0);const y=state.fly.y;
    ctx.resolveBodyContact(dt);
    assert.equal(state.fly.mode,'ground',`${from} -> ${to}, sign ${sign}`);
-   assert.equal(state.gait.phase,.27);assert(state.fly.support.feet>=3);assert(state.fly.support.maxGap<1e-7);
+   assert(state.fly.support.feet>=3);assert(state.fly.support.maxGap<1e-7);
    if(state.fly.surface===to)assert(Math.abs(state.fly.y-y)<1e-8);
   }
   assert.equal(state.fly.surface,to,`${from} -> ${to}, sign ${sign}`);
@@ -25,7 +25,7 @@ test('all eight directed corners transfer support while walking forward and back
   assert(Math.abs(state.fly.speed-sign*.45)<1e-9);assert(state.fly.modeTime>=4);
   const feet=footContacts(ctx.bodyCollider.root,supportPlane(to));
   assert(feet.every(({point})=>Math.abs(point.x)<=6.00001&&Math.abs(point.z)<=6.00001&&point.y>=0));
-  for(let i=0;i<90;i++){ctx.moveOnSurface(dt,sign*.45,0);ctx.resolveBodyContact(dt);assert.equal(state.fly.surface,to);assert.equal(state.fly.mode,'ground');}
+  for(let i=0;i<180;i++){ctx.moveOnSurface(dt,sign*.45,0);ctx.resolveBodyContact(dt);assert.equal(state.fly.surface,to);assert.equal(state.fly.mode,'ground');}
   assert.equal(events.filter(e=>e.type==='wall-transfer').length,1);
   assert.equal(events.find(e=>e.type==='wall-transfer').source,'body-contact');
  }
