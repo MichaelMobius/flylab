@@ -1,4 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import vm from 'node:vm';
+import {updateGrooming} from '../src/grooming.js';
 import {captureCornerPose,startCorner} from '../src/corner.js';
 import {FlyBodyCollider,bodySensorFrame} from '../src/body.js';
 import * as THREE from '../vendor/three/build/three.module.js';
@@ -13,8 +14,8 @@ export function engine(){
  const state={running:true,fly:{x:0,y:.2,z:0,heading:0,speed:0,vy:0,mode:'ground',surface:'floor',modeTime:0,blocked:0,pitch:0,roll:0,command:null},motor:{},metabolism:{},odorTrace:{raw:0,filtered:0,trend:0,ready:false},fruits:[],gait:createTripodGaitState()};resetExperimentState(state);
  const SURFACES={floor:{label:'suelo',normal:new THREE.Vector3(0,1,0),a:new THREE.Vector3(1,0,0),b:new THREE.Vector3(0,0,1)}};
  for(const [key,n,a]of [['wall-x+',[-1,0,0],[0,0,1]],['wall-x-',[1,0,0],[0,0,-1]],['wall-z+',[0,0,-1],[-1,0,0]],['wall-z-',[0,0,1],[1,0,0]]])SURFACES[key]={normal:new THREE.Vector3(...n),a:new THREE.Vector3(...a),b:new THREE.Vector3(0,1,0)};
- const ctx=vm.createContext({state,THREE,captureCornerPose,startCorner,HALF:6,bodyCollider:new FlyBodyCollider(),bodySensorFrame,SURFACES,SURFACE_BOUND:5.78,GROUND_Y:.2,MAX_ALTITUDE:4.25,FLY_RADIUS:.16,FIXED_DT,random:seededRandom(1337),brain:new MushroomBodyProxy(),activity:new ConnectomeActivityTracker(),maleCNS:{setInput(){},reset(){},setRunning(){}},maleMotor(){return null;},usingMaleCNS(){return false;},isMaleMode(){return false;},adaptiveEnabled(){return false;},motorLearner:{params(){return{};},update(){return{};},status(){return{};}},ui:{brainMode:{value:'proxy'}},session:{samples:[]},mixOdors,sensoryAverage,planarFrame,consumeFlightCommand,updateTripodGait,tripodPropulsion,resolveFruitCollisions,fruitSurfaceDistance,logEvent(){},updateFlightButton(){},syncFruitVisual(){},syncFruitControls(){},addTrailPoint(){},deleteFruit(f){state.fruits=state.fruits.filter(x=>x!==f);},selectFruit(){}});
- for(const name of ['resolveBodyContact','surfaceFrame','headingFromWorld','transferWall','attachWall','returnToFloor','setMode','antennaPositions','startFeeding','stopFeeding','updateFruitOdorTrace','removeFruitIfEmpty','updateMetabolism','neuralMotorReady','locomotorSignals','autonomousModeDecision','moveOnSurface','simulate'])vm.runInContext(extract(name),ctx);
+ const ctx=vm.createContext({state,THREE,updateGrooming,captureCornerPose,startCorner,HALF:6,bodyCollider:new FlyBodyCollider(),bodySensorFrame,SURFACES,SURFACE_BOUND:5.78,GROUND_Y:.2,MAX_ALTITUDE:4.25,FLY_RADIUS:.16,FIXED_DT,random:seededRandom(1337),brain:new MushroomBodyProxy(),activity:new ConnectomeActivityTracker(),maleCNS:{setInput(){},reset(){},setRunning(){}},maleMotor(){return null;},usingMaleCNS(){return false;},isMaleMode(){return false;},adaptiveEnabled(){return false;},motorLearner:{params(){return{};},update(){return{};},status(){return{};}},ui:{brainMode:{value:'proxy'}},session:{samples:[]},mixOdors,sensoryAverage,planarFrame,consumeFlightCommand,updateTripodGait,tripodPropulsion,resolveFruitCollisions,fruitSurfaceDistance,logEvent(){},updateFlightButton(){},syncFruitVisual(){},syncFruitControls(){},addTrailPoint(){},deleteFruit(f){state.fruits=state.fruits.filter(x=>x!==f);},selectFruit(){}});
+ for(const name of ['prepareLanding','resolveBodyContact','surfaceFrame','headingFromWorld','transferWall','attachWall','returnToFloor','setMode','antennaPositions','startFeeding','stopFeeding','updateFruitOdorTrace','removeFruitIfEmpty','updateMetabolism','neuralMotorReady','locomotorSignals','autonomousModeDecision','moveOnSurface','simulate'])vm.runInContext(extract(name),ctx);
  return {state,ctx,step:dt=>ctx.simulate(dt)};
 }
 test('flight and floor sensors steer toward the same lateral odor source',()=>{
@@ -52,4 +53,3 @@ test('multiple contact resolution returns a collision-free pose from a valid pre
  const fruits=[{type:'apple',x:0,z:0},{type:'apple',x:1,z:0}],prev={x:.5,y:.2,z:1.5},next={x:.5,y:.2,z:0};const result=resolveFruitCollisions(prev,next,fruits,{groundMode:true,margin:.16});assert(!result.blocked);assert(fruits.every(f=>!pointInsideFruit(result.point,f,.16)));
 });
 test('long browser suspension is explicit and does not inject a huge physics step',()=>{const clock=new FixedStepper();let n=0;assert.equal(clock.advance(3,()=>n++),false);assert.equal(n,0);});
-
