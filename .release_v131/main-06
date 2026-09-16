@@ -1,0 +1,54 @@
+  return {distance:d,forwardSpeed};
+}
+
+function simulate(dt){
+  if(!state.running)return false;
+  if(isMaleMode()&&(!maleCNS.ready||!maleCNS.canAdvance()))return false;
+  state.t=++state.ticks*FIXED_DT; state.fly.modeTime+=dt;
+  const ant=antennaPositions();
+  const L=mixOdors(state.fruits,ant.left.x,ant.left.z,ant.left.y), R=mixOdors(state.fruits,ant.right.x,ant.right.z,ant.right.y);
+  state.explore += (-state.explore*1.55+(random()*2-1)*(state.fly.mode==='flight'?.92:1.18))*dt;
+  const b=brain.step({leftMixture:L.mixture,rightMixture:R.mixture,dt,exploration:state.explore});
+  state.sensedMixture=sensoryAverage(L.mixture,R.mixture);updateMetabolism(dt);
+  const odorMean=(L.total+R.total)/2; const odorTrace=updateFruitOdorTrace(odorMean,dt); autonomousModeDecision(odorMean,b,dt);
+  const groomingEvent=updateGrooming(state.fly,dt,{feeding:state.metabolism.feeding,support:state.fly.support?.feet||0});
+  if(groomingEvent)logEvent('groom-'+groomingEvent,{source:'body-policy'});
+
+  const sig=locomotorSignals(b);
+  const f=state.fly, skill=state.motor.flightSkill, hungerDrive=.82+.36*state.metabolism.hunger; let turnRate=0,desiredSpeed=0,targetAlt=f.y;
+  if(f.mode==='ground'){
+    desiredSpeed=(state.metabolism.feeding||f.groom?.pause)?.0:(sig.source==='malecns'?sig.v*.92:(.34+.50*sig.approach)*hungerDrive);
+    const turnMobility=sig.source==='malecns'?(Math.abs(desiredSpeed)>.06?1:(Math.abs(sig.turn)>.38?.55:.12)):1;
+    const desiredTurnRate=f.groom?.pause?0:2.05*sig.turn*turnMobility;
+    f.vy=0; f.pitch=THREE.MathUtils.lerp(f.pitch,0,.12); f.roll=THREE.MathUtils.lerp(f.roll,-.10*sig.turn,.10);
+    if(adaptiveEnabled()){
+      // Embodied mode: DN commands are targets, not body velocities. The CPG and learned residual
+      // determine stance-foot propulsion; the resulting traction moves the body.
+      const params=motorLearner.params();
+      updateTripodGait(state.gait,dt,{grounded:true,feeding:state.metabolism.feeding||!!f.groom?.pause,speed:f.speed,desiredSpeed,turn:f.groom?.pause?0:sig.turn,modifiers:params});
+      const prop=tripodPropulsion(state.gait,dt);
+      const bodyDrive=f.groom?.pause?0:THREE.MathUtils.clamp(prop.speed,-.46,1.12);
+      turnRate=f.groom?.pause?0:THREE.MathUtils.clamp(prop.turn,-2.4,2.4);
+      const motion=moveOnSurface(dt,bodyDrive,turnRate);
+      const actualProgress=motion?.forwardSpeed??f.speed;
+      const eligible=!state.metabolism.feeding&&!f.groom?.pause&&f.blocked<.28&&(Math.abs(desiredSpeed)>.055||Math.abs(desiredTurnRate)>.08);
+      motorLearner.update(dt,{desiredSpeed,actualSpeed:actualProgress,desiredTurn:desiredTurnRate,actualTurn:turnRate,slip:prop.slip+Math.abs(f.speed-actualProgress)*.35,support:prop.support,cadence:state.gait.cadence,amplitude:state.gait.amplitude},{eligible,contextKey:f.surface+':'+Math.round(desiredSpeed*5)+':'+Math.round(desiredTurnRate*3)});
+      state.lastAdaptiveMotion={desiredSpeed,desiredTurnRate,...prop,actualSpeed:actualProgress,actualTurn:turnRate};
+    }else{
+      turnRate=desiredTurnRate;
+      moveOnSurface(dt,desiredSpeed,turnRate);
+      updateTripodGait(state.gait,dt,{grounded:true,feeding:state.metabolism.feeding,speed:f.speed,desiredSpeed,turn:sig.turn});
+      motorLearner.update(dt,{desiredSpeed,actualSpeed:f.speed,desiredTurn:desiredTurnRate,actualTurn:turnRate,slip:0,support:3,cadence:state.gait.cadence,amplitude:state.gait.amplitude},{eligible:false,contextKey:f.mode==='ground'?'inactive':'air'});
+      state.lastAdaptiveMotion=null;
+    }
+  } else {
+    if(f.mode==='takeoff'){turnRate=1.45*sig.turn;desiredSpeed=sig.source==='malecns'?.48+.42*Math.max(0,sig.v):.55+.34*sig.approach;targetAlt=1.05;f.vy+=(1.0+.42*skill-f.vy)*dt*3.2;f.pitch=THREE.MathUtils.lerp(f.pitch,-.16,.08);f.roll=THREE.MathUtils.lerp(f.roll,-.24*sig.turn,.10);if(f.y>.88)setMode('flight');}
+    else if(f.mode==='flight'){turnRate=(1.45+.42*skill)*sig.turn;desiredSpeed=sig.source==='malecns'?.62+.72*Math.max(0,sig.v):(.76+.62*sig.approach+.28*skill)*hungerDrive;targetAlt=odorMean>.40?.48:odorMean>.16?.88:1.55+.28*Math.sin(state.t*.45);const control=(targetAlt-f.y)*(1.45+.85*skill)-f.vy*(1.65+.8*skill),wobble=(random()*2-1)*(.46*(1-skill));f.vy+=(control+wobble)*dt;f.pitch=THREE.MathUtils.lerp(f.pitch,THREE.MathUtils.clamp(-f.vy*.14,-.24,.22),.12);f.roll=THREE.MathUtils.lerp(f.roll,-.38*sig.turn,.12);state.airTime+=dt;if(Math.abs(f.vy)<.48&&!state.lastCollision){state.motor.stableAir+=dt;state.motor.flightSkill=Math.min(1,state.motor.flightSkill+dt*.009);}}
+    else {turnRate=f.landingSurface?0:1.25*sig.turn;desiredSpeed=sig.source==='malecns'?.42+.28*Math.max(0,sig.v):.48+.28*sig.approach;targetAlt=f.landingSurface?f.y:GROUND_Y;f.vy+=((f.landingSurface?0:-.62)-f.vy)*dt*2.4;f.pitch=THREE.MathUtils.lerp(f.pitch,.12,.09);f.roll=THREE.MathUtils.lerp(f.roll,-.20*sig.turn,.10);state.airTime+=dt;}
+    f.heading+=turnRate*dt;f.speed+=(desiredSpeed-f.speed)*Math.min(1,dt*2.2);const prev={x:f.x,y:f.y,z:f.z};let next={x:f.x+Math.cos(f.heading)*f.speed*dt,y:f.y+f.vy*dt,z:f.z+Math.sin(f.heading)*f.speed*dt};
+    let wallHit=null;if(next.x>SURFACE_BOUND)wallHit='wall-x+';else if(next.x<-SURFACE_BOUND)wallHit='wall-x-';else if(next.z>SURFACE_BOUND)wallHit='wall-z+';else if(next.z<-SURFACE_BOUND)wallHit='wall-z-';
+    if(wallHit){ if(f.mode==='landing'&&f.y>.35){next.x=THREE.MathUtils.clamp(next.x,-SURFACE_BOUND,SURFACE_BOUND);next.z=THREE.MathUtils.clamp(next.z,-SURFACE_BOUND,SURFACE_BOUND);}else{next.x=THREE.MathUtils.clamp(next.x,-SURFACE_BOUND,SURFACE_BOUND);next.z=THREE.MathUtils.clamp(next.z,-SURFACE_BOUND,SURFACE_BOUND);f.heading+=Math.PI*.72+(random()-.5)*.25;f.blocked+=dt*2;} }
+    next.y=THREE.MathUtils.clamp(next.y,f.landingSurface?.60:GROUND_Y,MAX_ALTITUDE);
+    let collided=false,collidedFruit=null;
+    if(f.mode!=='ground'){const r=resolveFruitCollisions(prev,next,state.fruits,{margin:FLY_RADIUS,groundMode:false});if(r.collided){next=r.point;collided=true;collidedFruit=r.contact;f.blocked+=dt*3.8;f.vy+=r.normal.y*.32;f.heading+=(random()-.5)*.35;}}
+    if(collided&&!state.lastCollision){state.collisions++;state.motor.flightSkill=Math.max(.05,state.motor.flightSkill-.004);}state.lastCollision=collided;state.currentContact=collidedFruit;if(!collided)f.blocked=Math.max(0,f.blocked-dt*1.4);
